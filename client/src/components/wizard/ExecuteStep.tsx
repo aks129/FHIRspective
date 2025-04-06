@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { ServerConnection, AssessmentConfig, AssessmentStatus } from "@/types";
 import AssessmentProgress from "./AssessmentProgress";
 import { Button } from "@/components/ui/button";
@@ -22,31 +22,40 @@ export default function ExecuteStep({
   onNext,
   onPrev
 }: ExecuteStepProps) {
-  const [isStarting, setIsStarting] = useState(false);
+  // Use refs to track state without causing re-renders
+  const isStartingRef = useRef(false);
+  const hasStartedRef = useRef(false);
   
   // Start assessment automatically when component mounts
   useEffect(() => {
     const startAssessment = async () => {
       // Only start if we haven't started already and don't have a status
-      if (!assessmentStatus && !isStarting) {
-        setIsStarting(true);
+      if (!assessmentStatus && !isStartingRef.current && !hasStartedRef.current) {
+        isStartingRef.current = true;
+        hasStartedRef.current = true;
+        
         try {
           await onStartAssessment();
         } catch (error) {
           console.error("Failed to start assessment:", error);
         } finally {
-          setIsStarting(false);
+          isStartingRef.current = false;
         }
       }
     };
     
     startAssessment();
-  }, [assessmentStatus, onStartAssessment, isStarting]);
+  }, [assessmentStatus, onStartAssessment]);
 
   // Check if assessment is complete
   const isComplete = assessmentStatus?.status === 'completed';
   const isFailed = assessmentStatus?.status === 'failed';
-  const isRunning = assessmentStatus?.status === 'running' || isStarting;
+  const isRunning = assessmentStatus?.status === 'running' || isStartingRef.current;
+  
+  // If we have an assessment status, we've successfully started
+  if (assessmentStatus) {
+    hasStartedRef.current = true;
+  }
 
   return (
     <div className="fade-in">
@@ -55,7 +64,7 @@ export default function ExecuteStep({
           <CardTitle className="text-xl font-semibold text-gray-800">Assessment Progress</CardTitle>
         </CardHeader>
         <CardContent>
-          {!assessmentStatus && isStarting ? (
+          {!assessmentStatus && hasStartedRef.current ? (
             <div className="flex flex-col items-center justify-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
               <p className="text-gray-600">Starting assessment...</p>
