@@ -19,7 +19,9 @@ import {
   LabelList
 } from 'recharts';
 import { ResourceQualityScore, QualityIssue } from '@/types';
-import { AlertCircle, CheckCircle, XCircle, ChevronDown, ChevronUp, ChevronRight, ArrowUpRight } from 'lucide-react';
+import { AlertCircle, CheckCircle, XCircle, ChevronDown, ChevronUp, ChevronRight, ArrowUpRight, HelpCircle } from 'lucide-react';
+import { MetricTooltip } from '@/components/ui/metric-tooltip';
+import { SeverityTooltip } from '@/components/ui/severity-tooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -67,6 +69,19 @@ export default function ResourceDetailView({
     if (score >= 90) return '#4ade80'; // Green
     if (score >= 70) return '#facc15'; // Yellow
     return '#f87171'; // Red
+  };
+  
+  // Get a natural language interpretation of a score
+  const getScoreInterpretation = (score: number, dimension?: string) => {
+    const dimensionText = dimension ? ` ${dimension}` : '';
+    
+    if (score >= 95) return `Excellent${dimensionText} quality. Meets best practices and standards with minimal issues.`;
+    if (score >= 90) return `Very good${dimensionText} quality. A few minor improvements possible.`;
+    if (score >= 80) return `Good${dimensionText} quality. Some non-critical issues exist that could be addressed.`;
+    if (score >= 70) return `Acceptable${dimensionText} quality. Several issues exist that should be addressed.`;
+    if (score >= 60) return `Fair${dimensionText} quality. Significant issues that require attention.`;
+    if (score >= 50) return `Needs improvement in${dimensionText} quality. Critical issues should be prioritized.`;
+    return `Poor${dimensionText} quality. Major remediation required for interoperability.`;
   };
 
   // Get icon for issue severity
@@ -129,14 +144,32 @@ export default function ResourceDetailView({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">
-            {resource.resourceType} Resource Quality
-          </CardTitle>
-          <CardDescription>
-            Overall Score: <span className="font-semibold" style={{ color: getScoreColor(resource.overallScore) }}>{resource.overallScore.toFixed(1)}%</span>
+          <div className="flex items-center">
+            <CardTitle className="text-lg font-semibold mr-2">
+              {resource.resourceType} Resource Quality
+            </CardTitle>
+            <MetricTooltip dimension="overall">
+              <HelpCircle className="h-4 w-4 text-gray-400" />
+            </MetricTooltip>
+          </div>
+          <CardDescription className="flex items-center">
+            Overall Score: <span className="font-semibold ml-1" style={{ color: getScoreColor(resource.overallScore) }}>{resource.overallScore.toFixed(1)}%</span>
+            <MetricTooltip dimension="overall">
+              <span className="ml-1 text-gray-400 cursor-help underline underline-offset-2 text-xs">What does this mean?</span>
+            </MetricTooltip>
           </CardDescription>
-          <div className="text-sm text-gray-500 mt-1">
-            Click on any dimension bar to see related issues
+          <div className="mt-1 p-2 bg-gray-50 rounded-md border border-gray-100 text-sm text-gray-700">
+            <p>
+              <span className="font-medium" style={{ color: getScoreColor(resource.overallScore) }}>
+                {getScoreInterpretation(resource.overallScore)}
+              </span>
+              {resource.issuesCount > 0 && 
+                ` Found ${resource.issuesCount} issue${resource.issuesCount !== 1 ? 's' : ''} that may affect interoperability.`
+              }
+            </p>
+            <p className="text-xs text-gray-500 mt-1.5">
+              Click on any dimension bar to filter issues by quality dimension
+            </p>
           </div>
         </CardHeader>
         <CardContent>
@@ -174,7 +207,16 @@ export default function ResourceDetailView({
                       strokeWidth={selectedDimension === entry.key ? 2 : 0}
                     />
                   ))}
-                  <LabelList dataKey="score" position="right" formatter={(value: number) => `${value.toFixed(1)}%`} />
+                  <LabelList 
+                    dataKey="score" 
+                    position="right" 
+                    formatter={(value: number) => {
+                      // Add interpretation indicators for the dimension score
+                      if (value >= 90) return `${value.toFixed(1)}% ✓`;
+                      if (value >= 70) return `${value.toFixed(1)}% ⚠️`;
+                      return `${value.toFixed(1)}% ⚠️⚠️`;
+                    }} 
+                  />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -183,15 +225,19 @@ export default function ResourceDetailView({
         <CardFooter>
           <div className="w-full flex flex-wrap gap-2">
             {dimensionData.map((dim) => (
-              <Button
-                key={dim.key}
-                variant={selectedDimension === dim.key ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleDimensionSelect(dim.key)}
-                className={`${selectedDimension === dim.key ? 'bg-primary hover:bg-primary-dark' : 'hover:bg-gray-100'}`}
-              >
-                {dim.dimension} ({dim.issueCount})
-              </Button>
+              <span key={dim.key} className="group relative">
+                <Button
+                  variant={selectedDimension === dim.key ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleDimensionSelect(dim.key)}
+                  className={`${selectedDimension === dim.key ? 'bg-primary hover:bg-primary-dark' : 'hover:bg-gray-100'} flex items-center`}
+                >
+                  {dim.dimension} ({dim.issueCount})
+                  <MetricTooltip dimension={dim.key}>
+                    <HelpCircle className="h-3 w-3 ml-1 text-gray-400 group-hover:text-gray-600" />
+                  </MetricTooltip>
+                </Button>
+              </span>
             ))}
             {selectedDimension && (
               <Button 
@@ -215,11 +261,42 @@ export default function ResourceDetailView({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">
-            {resource.resourceType} Issues {selectedDimension ? 
-              `for ${selectedDimension.charAt(0).toUpperCase() + selectedDimension.slice(1)}` : 
-              ""} ({filteredIssues.length})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg font-semibold">
+              {resource.resourceType} Issues {selectedDimension ? 
+                `for ${selectedDimension.charAt(0).toUpperCase() + selectedDimension.slice(1)}` : 
+                ""} ({filteredIssues.length})
+            </CardTitle>
+            
+            <div className="flex items-center gap-1.5 text-xs text-gray-500">
+              <span className="mr-1">Legend:</span>
+              
+              <div className="flex items-center">
+                <SeverityTooltip severity="error">
+                  <XCircle className="h-3 w-3 text-red-500 mr-0.5 cursor-help" />
+                </SeverityTooltip>
+                <span>Error</span>
+              </div>
+              
+              <div className="mx-1.5">•</div>
+              
+              <div className="flex items-center">
+                <SeverityTooltip severity="warning">
+                  <AlertCircle className="h-3 w-3 text-yellow-500 mr-0.5 cursor-help" />
+                </SeverityTooltip>
+                <span>Warning</span>
+              </div>
+              
+              <div className="mx-1.5">•</div>
+              
+              <MetricTooltip dimension="overall">
+                <span className="inline-flex items-center cursor-help">
+                  <HelpCircle className="h-3 w-3 text-gray-400 mr-0.5" />
+                  <span>Hover for Help</span>
+                </span>
+              </MetricTooltip>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
@@ -245,16 +322,21 @@ export default function ResourceDetailView({
                         </CollapsibleTrigger>
                       </div>
                       <div className="flex flex-wrap gap-2 mt-1.5">
-                        <Badge variant="outline" className={getDimensionBadgeColor(issue.dimension)}>
-                          {issue.dimension}
-                        </Badge>
-                        <Badge variant="outline" className={
-                          issue.severity === 'error' ? 'bg-red-100 text-red-800' :
-                          issue.severity === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }>
-                          {issue.severity}
-                        </Badge>
+                        <MetricTooltip dimension={issue.dimension.toLowerCase()}>
+                          <Badge variant="outline" className={`${getDimensionBadgeColor(issue.dimension)} cursor-help`}>
+                            {issue.dimension}
+                          </Badge>
+                        </MetricTooltip>
+                        <SeverityTooltip severity={issue.severity}>
+                          <Badge variant="outline" className={`
+                            ${issue.severity === 'error' ? 'bg-red-100 text-red-800' :
+                              issue.severity === 'warning' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-green-100 text-green-800'} 
+                            cursor-help`
+                          }>
+                            {issue.severity}
+                          </Badge>
+                        </SeverityTooltip>
                         {issue.count && (
                           <Badge variant="outline" className="bg-gray-100 text-gray-800">
                             Count: {issue.count}
