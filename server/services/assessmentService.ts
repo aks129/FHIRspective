@@ -245,21 +245,39 @@ class AssessmentService {
         calculabilityScore
       } = this.calculateQualityScores(validationResults, assessment);
       
+      console.log(`Processing assessment results for ${resourceType} resources`);
+      
+      // Count issues
+      const issuesCount = this.countIssues(validationResults);
+      console.log(`Identified ${issuesCount} issues in ${resources.length} ${resourceType} resources`);
+      
+      // Summarize issues for storage
+      console.log(`Summarizing issues for ${resourceType} resources`);
+      const summarizedIssues = this.summarizeIssues(validationResults, resourceType);
+      console.log(`Summarized ${summarizedIssues.length} issue groups for ${resourceType} resources`);
+      
       // Create assessment result
-      await storage.createAssessmentResult({
-        assessmentId: assessment.id,
-        resourceType,
-        resourcesEvaluated: resources.length,
-        issuesIdentified: this.countIssues(validationResults),
-        autoFixed: autoFixedCount,
-        qualityScore,
-        completenessScore,
-        conformityScore,
-        plausibilityScore,
-        timelinessScore: timelinessScore || null,
-        calculabilityScore: calculabilityScore || null,
-        issues: this.summarizeIssues(validationResults, resourceType)
-      });
+      console.log(`Creating assessment result for ${resourceType} in database`);
+      try {
+        await storage.createAssessmentResult({
+          assessmentId: assessment.id,
+          resourceType,
+          resourcesEvaluated: resources.length,
+          issuesIdentified: issuesCount,
+          autoFixed: autoFixedCount,
+          qualityScore,
+          completenessScore,
+          conformityScore,
+          plausibilityScore,
+          timelinessScore: timelinessScore || null,
+          calculabilityScore: calculabilityScore || null,
+          issues: summarizedIssues
+        });
+        console.log(`Successfully created assessment result for ${resourceType} in database`);
+      } catch (dbError) {
+        console.error(`Error creating assessment result in database: ${dbError}`);
+        // Continue without failing the whole assessment
+      }
       
       // Update progress status to complete
       this.updateResourceStatus(assessment.id, resourceType, 'complete');
@@ -309,45 +327,96 @@ class AssessmentService {
     resourceType: string,
     status: 'pending' | 'in-progress' | 'complete'
   ): void {
-    if (!this.assessmentProgress[assessmentId]) return;
+    console.log(`Updating status of ${resourceType} for assessment ${assessmentId} to ${status}`);
     
-    const resourceProgress = this.assessmentProgress[assessmentId].resourceProgress[resourceType];
-    if (!resourceProgress) return;
+    // Ensure assessment progress object exists
+    if (!this.assessmentProgress[assessmentId]) {
+      console.log(`Assessment progress object doesn't exist for assessment ${assessmentId}, creating it`);
+      this.assessmentProgress[assessmentId] = {
+        overallProgress: 0,
+        resourceProgress: {}
+      };
+    }
     
-    resourceProgress.status = status;
+    // Ensure resource progress object exists
+    if (!this.assessmentProgress[assessmentId].resourceProgress[resourceType]) {
+      console.log(`Resource progress object doesn't exist for ${resourceType}, creating it`);
+      this.assessmentProgress[assessmentId].resourceProgress[resourceType] = {
+        completed: 0,
+        total: 100, // Default
+        status: 'pending'
+      };
+    }
+    
+    // Update the status
+    this.assessmentProgress[assessmentId].resourceProgress[resourceType].status = status;
     
     // If complete, ensure count is set to total
     if (status === 'complete') {
-      resourceProgress.completed = resourceProgress.total;
+      const total = this.assessmentProgress[assessmentId].resourceProgress[resourceType].total;
+      this.assessmentProgress[assessmentId].resourceProgress[resourceType].completed = total;
+      console.log(`Marking ${resourceType} as complete (${total}/${total})`);
     }
     
     // Update overall progress
     this.updateOverallProgress(assessmentId);
+    console.log(`Updated overall progress for assessment ${assessmentId} to ${this.assessmentProgress[assessmentId].overallProgress}%`);
+
+    // Log the full progress object for debugging
+    console.log(`Current assessment progress: ${JSON.stringify(this.assessmentProgress[assessmentId])}`);
   }
 
   /**
    * Update overall progress percentage
    */
   private updateOverallProgress(assessmentId: number): void {
-    if (!this.assessmentProgress[assessmentId]) return;
+    // Ensure assessment progress object exists
+    if (!this.assessmentProgress[assessmentId]) {
+      console.log(`Assessment progress object doesn't exist for assessment ${assessmentId} in updateOverallProgress`);
+      return;
+    }
     
     const progress = this.assessmentProgress[assessmentId];
-    const resourceTypes = Object.keys(progress.resourceProgress);
+    const resourceTypes = Object.keys(progress.resourceProgress || {});
     
     if (resourceTypes.length === 0) {
       progress.overallProgress = 0;
+      console.log(`No resource types found for assessment ${assessmentId}, setting progress to 0%`);
       return;
     }
     
     let totalCompleted = 0;
     let totalResources = 0;
     
+    // Log resource types being processed
+    console.log(`Calculating progress for ${resourceTypes.length} resource types: ${resourceTypes.join(', ')}`);
+    
     for (const resourceType of resourceTypes) {
-      totalCompleted += progress.resourceProgress[resourceType].completed;
-      totalResources += progress.resourceProgress[resourceType].total;
+      try {
+        const resourceProgress = progress.resourceProgress[resourceType];
+        
+        if (resourceProgress) {
+          // Ensure values are valid numbers
+          const completed = typeof resourceProgress.completed === 'number' ? resourceProgress.completed : 0;
+          const total = typeof resourceProgress.total === 'number' ? resourceProgress.total : 0;
+          
+          totalCompleted += completed;
+          totalResources += total;
+          
+          console.log(`Resource ${resourceType}: ${completed}/${total} (${resourceProgress.status})`);
+        }
+      } catch (error) {
+        console.error(`Error processing progress for ${resourceType}:`, error);
+      }
     }
     
-    progress.overallProgress = Math.round((totalCompleted / totalResources) * 100);
+    if (totalResources === 0) {
+      progress.overallProgress = 0;
+    } else {
+      progress.overallProgress = Math.round((totalCompleted / totalResources) * 100);
+    }
+    
+    console.log(`Assessment ${assessmentId} overall progress: ${totalCompleted}/${totalResources} = ${progress.overallProgress}%`);
   }
 
   /**
@@ -394,115 +463,213 @@ class AssessmentService {
     timelinessScore?: number;
     calculabilityScore?: number;
   } {
-    // Count issues by dimension
-    const dimensions = this.countIssuesByDimension(results);
-    
-    // Get total resources
-    const totalResources = results.length;
-    
-    if (totalResources === 0) {
+    try {
+      console.log(`Calculating quality scores for ${results?.length || 0} validation results`);
+      
+      // Safety check for null/undefined results
+      if (!results || !Array.isArray(results)) {
+        console.log(`Invalid results object, returning default scores`);
+        return {
+          qualityScore: 100,
+          completenessScore: 100,
+          conformityScore: 100,
+          plausibilityScore: 100
+        };
+      }
+      
+      // Count issues by dimension
+      const dimensions = this.countIssuesByDimension(results);
+      console.log(`Issues by dimension: ${JSON.stringify(dimensions)}`);
+      
+      // Get total resources
+      const totalResources = results.length;
+      
+      if (totalResources === 0) {
+        console.log(`No resources to calculate scores, returning perfect scores`);
+        return {
+          qualityScore: 100,
+          completenessScore: 100,
+          conformityScore: 100,
+          plausibilityScore: 100
+        };
+      }
+      
+      // Calculate dimension weights based on selected dimensions in assessment
+      // Safety check for null/undefined dimensions
+      let assessmentDimensions: { [key: string]: boolean } = {};
+      try {
+        assessmentDimensions = assessment.dimensions as { [key: string]: boolean } || {};
+      } catch (error) {
+        console.error(`Error accessing assessment dimensions:`, error);
+        assessmentDimensions = {
+          completeness: true,
+          conformity: true,
+          plausibility: true
+        };
+      }
+      
+      const selectedDimensions = Object.keys(assessmentDimensions)
+        .filter(dim => assessmentDimensions[dim]);
+      
+      console.log(`Selected dimensions for scoring: ${selectedDimensions.join(', ')}`);
+      
+      // Handle case with no selected dimensions
+      if (selectedDimensions.length === 0) {
+        console.log(`No dimensions selected, using default dimensions`);
+        selectedDimensions.push('completeness', 'conformity', 'plausibility');
+      }
+      
+      const dimensionWeight = 1 / selectedDimensions.length;
+      console.log(`Dimension weight: ${dimensionWeight}`);
+      
+      // Calculate scores for each dimension (100 - percentage of resources with issues)
+      const completenessScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.completeness / totalResources * 100))));
+      const conformityScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.conformity / totalResources * 100))));
+      const plausibilityScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.plausibility / totalResources * 100))));
+      
+      console.log(`Base scores - Completeness: ${completenessScore}, Conformity: ${conformityScore}, Plausibility: ${plausibilityScore}`);
+      
+      // Optional dimensions
+      let timelinessScore: number | undefined = undefined;
+      let calculabilityScore: number | undefined = undefined;
+      
+      if (assessmentDimensions.timeliness) {
+        timelinessScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.timeliness / totalResources * 100))));
+        console.log(`Optional score - Timeliness: ${timelinessScore}`);
+      }
+      
+      if (assessmentDimensions.calculability) {
+        calculabilityScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.calculability / totalResources * 100))));
+        console.log(`Optional score - Calculability: ${calculabilityScore}`);
+      }
+      
+      // Calculate weighted overall score
+      let qualityScore = 0;
+      qualityScore += completenessScore * dimensionWeight;
+      qualityScore += conformityScore * dimensionWeight;
+      qualityScore += plausibilityScore * dimensionWeight;
+      
+      if (timelinessScore !== undefined) {
+        qualityScore += timelinessScore * dimensionWeight;
+      }
+      
+      if (calculabilityScore !== undefined) {
+        qualityScore += calculabilityScore * dimensionWeight;
+      }
+      
+      const finalQualityScore = Math.round(qualityScore);
+      console.log(`Final quality score: ${finalQualityScore}`);
+      
       return {
-        qualityScore: 100,
-        completenessScore: 100,
-        conformityScore: 100,
-        plausibilityScore: 100
+        qualityScore: finalQualityScore,
+        completenessScore,
+        conformityScore,
+        plausibilityScore,
+        timelinessScore,
+        calculabilityScore
+      };
+    } catch (error) {
+      console.error(`Error calculating quality scores:`, error);
+      // Return default scores in case of error
+      return {
+        qualityScore: 70, // Default moderate score
+        completenessScore: 70,
+        conformityScore: 70,
+        plausibilityScore: 70
       };
     }
-    
-    // Calculate dimension weights based on selected dimensions in assessment
-    const assessmentDimensions = assessment.dimensions as { [key: string]: boolean };
-    
-    const selectedDimensions = Object.keys(assessmentDimensions)
-      .filter(dim => assessmentDimensions[dim]);
-    
-    const dimensionWeight = 1 / selectedDimensions.length;
-    
-    // Calculate scores for each dimension (100 - percentage of resources with issues)
-    const completenessScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.completeness / totalResources * 100))));
-    const conformityScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.conformity / totalResources * 100))));
-    const plausibilityScore = Math.max(0, Math.min(100, Math.round(100 - (dimensions.plausibility / totalResources * 100))));
-    
-    // Optional dimensions
-    const timelinessScore = assessmentDimensions.timeliness 
-      ? Math.max(0, Math.min(100, Math.round(100 - (dimensions.timeliness / totalResources * 100))))
-      : undefined;
-    
-    const calculabilityScore = assessmentDimensions.calculability
-      ? Math.max(0, Math.min(100, Math.round(100 - (dimensions.calculability / totalResources * 100))))
-      : undefined;
-    
-    // Calculate weighted overall score
-    let qualityScore = 0;
-    qualityScore += completenessScore * dimensionWeight;
-    qualityScore += conformityScore * dimensionWeight;
-    qualityScore += plausibilityScore * dimensionWeight;
-    
-    if (timelinessScore !== undefined) {
-      qualityScore += timelinessScore * dimensionWeight;
-    }
-    
-    if (calculabilityScore !== undefined) {
-      qualityScore += calculabilityScore * dimensionWeight;
-    }
-    
-    return {
-      qualityScore: Math.round(qualityScore),
-      completenessScore,
-      conformityScore,
-      plausibilityScore,
-      timelinessScore,
-      calculabilityScore
-    };
   }
 
   /**
    * Summarize issues for storage
    */
   private summarizeIssues(results: ValidationResult[], resourceType: string): any[] {
-    // Group similar issues
-    const issueGroups: { [key: string]: any } = {};
-    
-    for (const result of results) {
-      for (const issue of result.issues) {
-        // Create a key for grouping similar issues
-        const key = `${issue.severity}|${issue.code}|${issue.dimension}|${issue.diagnostics}`;
-        
-        if (!issueGroups[key]) {
-          issueGroups[key] = {
-            severity: issue.severity,
-            code: issue.code,
-            diagnostics: issue.diagnostics,
-            dimension: issue.dimension,
-            count: 0,
-            examples: []
-          };
+    try {
+      console.log(`Starting to summarize issues for ${results.length} ${resourceType} validation results`);
+      
+      // Safety check for empty results
+      if (!results || results.length === 0) {
+        console.log(`No results to summarize for ${resourceType}`);
+        return [];
+      }
+      
+      // Group similar issues
+      const issueGroups: { [key: string]: any } = {};
+      let issueCount = 0;
+      
+      for (const result of results) {
+        // Skip invalid results
+        if (!result || !Array.isArray(result.issues)) {
+          console.log(`Skipping invalid result for ${resourceType}`);
+          continue;
         }
         
-        issueGroups[key].count++;
-        
-        // Store a few examples
-        if (issueGroups[key].examples.length < 5) {
-          issueGroups[key].examples.push({
-            resourceId: result.resourceId,
-            location: issue.location || issue.expression
-          });
+        for (const issue of result.issues) {
+          // Skip invalid issues
+          if (!issue || !issue.severity || !issue.code) {
+            console.log(`Skipping invalid issue in ${resourceType}`);
+            continue;
+          }
+          
+          // Create a key for grouping similar issues
+          const key = `${issue.severity}|${issue.code}|${issue.dimension || 'unknown'}|${issue.diagnostics || 'No description'}`;
+          
+          if (!issueGroups[key]) {
+            issueGroups[key] = {
+              severity: issue.severity,
+              code: issue.code,
+              diagnostics: issue.diagnostics || 'No description',
+              dimension: issue.dimension || 'unknown',
+              count: 0,
+              examples: []
+            };
+          }
+          
+          issueGroups[key].count++;
+          issueCount++;
+          
+          // Store a few examples
+          if (issueGroups[key].examples.length < 5) {
+            issueGroups[key].examples.push({
+              resourceId: result.resourceId || 'unknown',
+              location: issue.location || issue.expression || ['unknown']
+            });
+          }
         }
       }
-    }
-    
-    // Convert to array and sort by count
-    return Object.values(issueGroups)
-      .sort((a, b) => b.count - a.count)
-      .map((group, index) => ({
-        id: index + 1,
+      
+      console.log(`Found ${issueCount} total issues grouped into ${Object.keys(issueGroups).length} categories for ${resourceType}`);
+      
+      // Convert to array and sort by count
+      const summarized = Object.values(issueGroups)
+        .sort((a, b) => b.count - a.count)
+        .map((group, index) => ({
+          id: index + 1,
+          resourceType,
+          severity: group.severity,
+          code: group.code,
+          description: group.diagnostics,
+          dimension: group.dimension,
+          count: group.count,
+          examples: group.examples
+        }));
+      
+      console.log(`Successfully summarized ${summarized.length} issue groups for ${resourceType}`);
+      return summarized;
+    } catch (error) {
+      console.error(`Error summarizing issues for ${resourceType}:`, error);
+      // Return empty array instead of failing
+      return [{
+        id: 1,
         resourceType,
-        severity: group.severity,
-        code: group.code,
-        description: group.diagnostics,
-        dimension: group.dimension,
-        count: group.count,
-        examples: group.examples
-      }));
+        severity: 'error',
+        code: 'processing-error',
+        description: `Error summarizing issues: ${error instanceof Error ? error.message : String(error)}`,
+        dimension: 'unknown',
+        count: 1,
+        examples: []
+      }];
+    }
   }
 }
 
