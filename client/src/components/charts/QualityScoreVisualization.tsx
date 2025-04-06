@@ -63,6 +63,9 @@ export default function QualityScoreVisualization({ summary }: QualityScoreVisua
     setViewMode('summary');
   }, [summary]);
   
+  // State for tracking selected dimension for filtering
+  const [selectedDimension, setSelectedDimension] = useState<string | null>(null);
+  
   // Update resource details when a resource is selected
   useEffect(() => {
     if (selectedResource) {
@@ -70,16 +73,22 @@ export default function QualityScoreVisualization({ summary }: QualityScoreVisua
       setResourceDetails(resource);
       
       // Filter issues for the selected resource
-      const issues = summary.topIssues.filter(issue => 
+      let issues = summary.topIssues.filter(issue => 
         issue.resourceType === selectedResource ||
         issue.resourceType.includes(selectedResource)
       );
+      
+      // Further filter by dimension if one is selected
+      if (selectedDimension) {
+        issues = issues.filter(issue => issue.dimension.toLowerCase() === selectedDimension.toLowerCase());
+      }
+      
       setResourceIssues(issues);
       
       // Switch to details view
       setViewMode('details');
     }
-  }, [selectedResource, summary]);
+  }, [selectedResource, selectedDimension, summary]);
   
   // Prepare data for dimension radar chart
   const getAverageDimensionScores = () => {
@@ -218,7 +227,9 @@ export default function QualityScoreVisualization({ summary }: QualityScoreVisua
           resourceDetails && (
             <ResourceDetailView 
               resource={resourceDetails} 
-              issues={resourceIssues} 
+              issues={resourceIssues}
+              selectedDimension={selectedDimension}
+              onDimensionSelect={(dimension: string | null) => setSelectedDimension(dimension)}
             />
           )
         )}
