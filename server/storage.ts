@@ -5,6 +5,8 @@ import {
   assessmentResults, type AssessmentResult, type InsertAssessmentResult,
   assessmentLogs, type AssessmentLog, type InsertAssessmentLog
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 
 // Storage interface defining all operations
 export interface IStorage {
@@ -36,207 +38,175 @@ export interface IStorage {
   createAssessmentLog(log: InsertAssessmentLog): Promise<AssessmentLog>;
 }
 
-// In-memory storage implementation
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private fhirServers: Map<number, FhirServer>;
-  private assessments: Map<number, Assessment>;
-  private assessmentResults: Map<number, AssessmentResult>;
-  private assessmentLogs: Map<number, AssessmentLog>;
-  
-  private currentUserId: number;
-  private currentFhirServerId: number;
-  private currentAssessmentId: number;
-  private currentAssessmentResultId: number;
-  private currentAssessmentLogId: number;
-
-  constructor() {
-    this.users = new Map();
-    this.fhirServers = new Map();
-    this.assessments = new Map();
-    this.assessmentResults = new Map();
-    this.assessmentLogs = new Map();
-    
-    this.currentUserId = 1;
-    this.currentFhirServerId = 1;
-    this.currentAssessmentId = 1;
-    this.currentAssessmentResultId = 1;
-    this.currentAssessmentLogId = 1;
-    
-    // Add some initial data for development
-    this.createUser({ username: "demo", password: "password" });
-    
-    this.createFhirServer({
-      url: "https://hapi.fhir.org/baseR4",
-      authType: "none",
-      timeout: 30,
-      userId: 1
-    });
-    
-    this.createFhirServer({
-      url: "https://smartfhir.sandboxcerner.com/r4/0b8a0111-e8e6-4c26-a91c-5069cbc6b1ca",
-      authType: "none",
-      timeout: 30,
-      userId: 1
-    });
-  }
-
+// Database storage implementation
+export class DatabaseStorage implements IStorage {
   // User operations
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = this.currentUserId++;
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
   // FHIR Server operations
   async getFhirServer(id: number): Promise<FhirServer | undefined> {
-    return this.fhirServers.get(id);
+    const [server] = await db.select().from(fhirServers).where(eq(fhirServers.id, id));
+    return server;
   }
 
   async getFhirServersByUser(userId: number): Promise<FhirServer[]> {
-    return Array.from(this.fhirServers.values())
-      .filter(server => server.userId === userId)
-      .sort((a, b) => {
-        const dateA = new Date(a.lastUsed).getTime();
-        const dateB = new Date(b.lastUsed).getTime();
-        return dateB - dateA; // Sort by most recent first
-      });
+    return await db
+      .select()
+      .from(fhirServers)
+      .where(eq(fhirServers.userId, userId))
+      .orderBy(desc(fhirServers.lastUsed));
   }
 
   async createFhirServer(insertServer: InsertFhirServer): Promise<FhirServer> {
-    const id = this.currentFhirServerId++;
-    const now = new Date();
-    const server: FhirServer = { 
-      ...insertServer, 
-      id, 
-      lastUsed: now
-    };
-    this.fhirServers.set(id, server);
+    const [server] = await db.insert(fhirServers).values({
+      ...insertServer,
+      lastUsed: new Date()
+    }).returning();
     return server;
   }
 
   async updateFhirServerLastUsed(id: number): Promise<FhirServer | undefined> {
-    const server = this.fhirServers.get(id);
-    if (!server) return undefined;
-    
-    const updatedServer = {
-      ...server,
-      lastUsed: new Date()
-    };
-    this.fhirServers.set(id, updatedServer);
-    return updatedServer;
+    const [server] = await db
+      .update(fhirServers)
+      .set({ lastUsed: new Date() })
+      .where(eq(fhirServers.id, id))
+      .returning();
+    return server;
   }
 
   // Assessment operations
   async getAssessment(id: number): Promise<Assessment | undefined> {
-    return this.assessments.get(id);
+    const [assessment] = await db.select().from(assessments).where(eq(assessments.id, id));
+    return assessment;
   }
 
   async getAssessmentsByUser(userId: number): Promise<Assessment[]> {
-    return Array.from(this.assessments.values())
-      .filter(assessment => assessment.userId === userId)
-      .sort((a, b) => {
-        const dateA = new Date(a.createdAt).getTime();
-        const dateB = new Date(b.createdAt).getTime();
-        return dateB - dateA; // Sort by most recent first
-      });
+    return await db
+      .select()
+      .from(assessments)
+      .where(eq(assessments.userId, userId))
+      .orderBy(desc(assessments.createdAt));
   }
 
   async createAssessment(insertAssessment: InsertAssessment): Promise<Assessment> {
-    const id = this.currentAssessmentId++;
-    const now = new Date();
-    const assessment: Assessment = {
-      ...insertAssessment,
-      id,
-      createdAt: now,
-      completedAt: null,
-      status: "pending"
-    };
-    this.assessments.set(id, assessment);
+    const [assessment] = await db.insert(assessments).values(insertAssessment).returning();
     return assessment;
   }
 
   async updateAssessmentStatus(id: number, status: string): Promise<Assessment | undefined> {
-    const assessment = this.assessments.get(id);
-    if (!assessment) return undefined;
-    
-    const updatedAssessment = {
-      ...assessment,
-      status
-    };
-    this.assessments.set(id, updatedAssessment);
-    return updatedAssessment;
+    const [assessment] = await db
+      .update(assessments)
+      .set({ status })
+      .where(eq(assessments.id, id))
+      .returning();
+    return assessment;
   }
 
   async updateAssessmentCompletion(id: number): Promise<Assessment | undefined> {
-    const assessment = this.assessments.get(id);
-    if (!assessment) return undefined;
-    
-    const updatedAssessment = {
-      ...assessment,
-      completedAt: new Date(),
-      status: "completed"
-    };
-    this.assessments.set(id, updatedAssessment);
-    return updatedAssessment;
+    const [assessment] = await db
+      .update(assessments)
+      .set({ 
+        status: "completed",
+        completedAt: new Date()
+      })
+      .where(eq(assessments.id, id))
+      .returning();
+    return assessment;
   }
 
   // Assessment Result operations
   async getAssessmentResult(id: number): Promise<AssessmentResult | undefined> {
-    return this.assessmentResults.get(id);
+    const [result] = await db
+      .select()
+      .from(assessmentResults)
+      .where(eq(assessmentResults.id, id));
+    return result;
   }
 
   async getAssessmentResultsByAssessment(assessmentId: number): Promise<AssessmentResult[]> {
-    return Array.from(this.assessmentResults.values())
-      .filter(result => result.assessmentId === assessmentId);
+    return await db
+      .select()
+      .from(assessmentResults)
+      .where(eq(assessmentResults.assessmentId, assessmentId));
   }
 
   async createAssessmentResult(insertResult: InsertAssessmentResult): Promise<AssessmentResult> {
-    const id = this.currentAssessmentResultId++;
-    const now = new Date();
-    const result: AssessmentResult = {
-      ...insertResult,
-      id,
-      createdAt: now
-    };
-    this.assessmentResults.set(id, result);
+    const [result] = await db
+      .insert(assessmentResults)
+      .values(insertResult)
+      .returning();
     return result;
   }
 
   // Assessment Log operations
   async getAssessmentLogsByAssessment(assessmentId: number): Promise<AssessmentLog[]> {
-    return Array.from(this.assessmentLogs.values())
-      .filter(log => log.assessmentId === assessmentId)
-      .sort((a, b) => {
-        const dateA = new Date(a.timestamp).getTime();
-        const dateB = new Date(b.timestamp).getTime();
-        return dateB - dateA; // Sort by most recent first
-      });
+    return await db
+      .select()
+      .from(assessmentLogs)
+      .where(eq(assessmentLogs.assessmentId, assessmentId))
+      .orderBy(desc(assessmentLogs.timestamp));
   }
 
   async createAssessmentLog(insertLog: InsertAssessmentLog): Promise<AssessmentLog> {
-    const id = this.currentAssessmentLogId++;
-    const now = new Date();
-    const log: AssessmentLog = {
-      ...insertLog,
-      id,
-      timestamp: now
-    };
-    this.assessmentLogs.set(id, log);
+    const [log] = await db
+      .insert(assessmentLogs)
+      .values(insertLog)
+      .returning();
     return log;
   }
 }
 
+// Seed the database with initial data if needed
+async function seedDatabase() {
+  try {
+    // Check if we already have users
+    const existingUsers = await db.select().from(users);
+    if (existingUsers.length === 0) {
+      // Create demo user
+      await db.insert(users).values({
+        username: "demo",
+        password: "password"
+      });
+      
+      // Get the user id
+      const [demoUser] = await db.select().from(users).where(eq(users.username, "demo"));
+      
+      // Create sample FHIR servers
+      await db.insert(fhirServers).values([
+        {
+          url: "https://hapi.fhir.org/baseR4",
+          authType: "none",
+          timeout: 30,
+          userId: demoUser.id
+        },
+        {
+          url: "https://smartfhir.sandboxcerner.com/r4/0b8a0111-e8e6-4c26-a91c-5069cbc6b1ca",
+          authType: "none",
+          timeout: 30,
+          userId: demoUser.id
+        }
+      ]);
+    }
+  } catch (error) {
+    console.error("Error seeding database:", error);
+  }
+}
+
+// Initialize the database if needed
+seedDatabase().catch(console.error);
+
 // Export the storage instance
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
