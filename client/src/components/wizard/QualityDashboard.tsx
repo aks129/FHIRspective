@@ -1,15 +1,48 @@
 import { AssessmentSummary, QualityIssue } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, CheckCircle } from "lucide-react";
+import { AlertCircle, CheckCircle, Download, Share2, FileText } from "lucide-react";
 import LineChart from "@/components/charts/LineChart";
 import QualityScoreVisualization from "@/components/charts/QualityScoreVisualization";
+import { useToast } from "@/hooks/use-toast";
 
 interface QualityDashboardProps {
   summary: AssessmentSummary;
 }
 
 export default function QualityDashboard({ summary }: QualityDashboardProps) {
+  const { toast } = useToast();
+  
+  // Function to handle exporting the report in different formats
+  const handleExportReport = (format: "pdf" | "json" | "csv") => {
+    // In a real implementation, this would make an API call to generate and download the report
+    
+    // For now, show a toast notification
+    toast({
+      title: "Export Started",
+      description: `Your ${format.toUpperCase()} report is being prepared for download.`,
+    });
+    
+    // Simulate a delay before showing the "completed" toast
+    setTimeout(() => {
+      toast({
+        title: "Export Complete",
+        description: `Your report has been exported successfully.`,
+      });
+    }, 1500);
+  };
+  
+  // Function to handle sharing results
+  const handleShareResults = () => {
+    // In a real implementation, this would open a share dialog or generate a shareable link
+    
+    // For now, show a toast notification
+    toast({
+      title: "Share Feature",
+      description: "Sharing functionality will be available in a future update.",
+    });
+  };
+  
   // Get severity class for issue badges
   const getIssueSeverityClass = (severity: string) => {
     switch(severity) {

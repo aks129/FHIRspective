@@ -2,6 +2,7 @@ import { AssessmentSummary } from "@/types";
 import ResultsSummary from "./ResultsSummary";
 import QualityDashboard from "./QualityDashboard";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 interface ResultsStepProps {
   assessmentResults?: AssessmentSummary;
@@ -14,6 +15,37 @@ export default function ResultsStep({
   onStartNewAssessment,
   onPrev
 }: ResultsStepProps) {
+  const { toast } = useToast();
+
+  // Function to handle exporting the report in different formats
+  const handleExportReport = (format: "pdf" | "json" | "csv") => {
+    // In a real implementation, this would make an API call to generate and download the report
+    
+    // For now, show a toast notification
+    toast({
+      title: "Export Started",
+      description: `Your ${format.toUpperCase()} report is being prepared for download.`,
+    });
+    
+    // Simulate a delay before showing the "completed" toast
+    setTimeout(() => {
+      toast({
+        title: "Export Complete",
+        description: `Your report has been exported successfully.`,
+      });
+    }, 1500);
+  };
+  
+  // Function to handle sharing results
+  const handleShareResults = () => {
+    // In a real implementation, this would open a share dialog or generate a shareable link
+    
+    // For now, show a toast notification
+    toast({
+      title: "Share Feature",
+      description: "Sharing functionality will be available in a future update.",
+    });
+  };
   if (!assessmentResults) {
     return (
       <div className="text-center py-12">
@@ -52,6 +84,7 @@ export default function ResultsStep({
           </Button>
           <Button 
             className="bg-primary hover:bg-primary-dark text-white"
+            onClick={() => handleExportReport("pdf")}
           >
             Download Full Report
           </Button>

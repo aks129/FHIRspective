@@ -29,15 +29,15 @@ export default function StepIndicator({ currentStep, onStepClick }: StepIndicato
                 "after:content-[''] after:w-full after:h-1 after:border-b after:border-gray-200 after:border-1 after:hidden sm:after:inline-block after:mx-6 xl:after:mx-10" : ""} 
               ${currentStep >= step.number ? "text-primary" : ""}`}
             onClick={() => {
-              // Only allow clicking on completed steps or current step
-              if (onStepClick && currentStep >= step.number) {
+              // Allow clicking on any step for improved navigation
+              if (onStepClick) {
                 onStepClick(step.number);
               }
             }}
           >
             <span 
-              className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 cursor-pointer
-                ${currentStep >= step.number ? "bg-primary-light text-white" : "bg-gray-100"}`}
+              className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 cursor-pointer transition-colors duration-200 
+                ${currentStep >= step.number ? "bg-primary-light text-white hover:bg-primary-dark" : "bg-gray-100 hover:bg-gray-200"}`}
             >
               {currentStep > step.number ? (
                 <Check className="h-4 w-4" />
@@ -45,7 +45,7 @@ export default function StepIndicator({ currentStep, onStepClick }: StepIndicato
                 <span>{step.number}</span>
               )}
             </span>
-            <span className="hidden sm:inline-flex sm:ml-2">{step.title}</span>
+            <span className="hidden sm:inline-flex sm:ml-2 hover:underline cursor-pointer">{step.title}</span>
           </li>
         ))}
       </ol>

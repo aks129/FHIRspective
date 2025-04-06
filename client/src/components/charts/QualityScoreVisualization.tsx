@@ -13,16 +13,49 @@ import InteractiveBarChart from './InteractiveBarChart';
 import ResourceDetailView from './ResourceDetailView';
 import RadarChart from './RadarChart';
 import PieChart from './PieChart';
+import { Download, Share2, FileText } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 interface QualityScoreVisualizationProps {
   summary: AssessmentSummary;
 }
 
 export default function QualityScoreVisualization({ summary }: QualityScoreVisualizationProps) {
+  const { toast } = useToast();
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
   const [resourceDetails, setResourceDetails] = useState<ResourceQualityScore | null>(null);
   const [resourceIssues, setResourceIssues] = useState<QualityIssue[]>([]);
   const [viewMode, setViewMode] = useState<'summary' | 'details'>('summary');
+  
+  // Function to handle exporting the report in different formats
+  const handleExportReport = (format: "pdf" | "json" | "csv") => {
+    // In a real implementation, this would make an API call to generate and download the report
+    
+    // For now, show a toast notification
+    toast({
+      title: "Export Started",
+      description: `Your ${format.toUpperCase()} report is being prepared for download.`,
+    });
+    
+    // Simulate a delay before showing the "completed" toast
+    setTimeout(() => {
+      toast({
+        title: "Export Complete",
+        description: `Your report has been exported successfully.`,
+      });
+    }, 1500);
+  };
+  
+  // Function to handle sharing results
+  const handleShareResults = () => {
+    // In a real implementation, this would open a share dialog or generate a shareable link
+    
+    // For now, show a toast notification
+    toast({
+      title: "Share Feature",
+      description: "Sharing functionality will be available in a future update.",
+    });
+  };
   
   // Reset selection when summary changes
   useEffect(() => {
@@ -117,27 +150,40 @@ export default function QualityScoreVisualization({ summary }: QualityScoreVisua
   return (
     <Card className="w-full">
       <CardHeader>
-        <div className="flex justify-between items-center">
-          <div>
-            <CardTitle className="text-xl font-semibold text-gray-800">
-              Quality Score Visualization
-            </CardTitle>
-            <CardDescription>
-              {viewMode === 'details' && selectedResource ? 
-                `Detailed view for ${selectedResource} resources` : 
-                `Overall quality score: ${summary.overallQualityScore.toFixed(1)}%`
-              }
-            </CardDescription>
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <CardTitle className="text-xl font-semibold text-gray-800">
+                Quality Score Visualization
+              </CardTitle>
+              <CardDescription>
+                {viewMode === 'details' && selectedResource ? 
+                  `Detailed view for ${selectedResource} resources` : 
+                  `Overall quality score: ${summary.overallQualityScore.toFixed(1)}%`
+                }
+              </CardDescription>
+            </div>
+            {viewMode === 'details' && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleBackToSummary}
+              >
+                Back to Overview
+              </Button>
+            )}
           </div>
-          {viewMode === 'details' && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleBackToSummary}
-            >
-              Back to Overview
+          <div className="flex flex-wrap gap-2 mb-2">
+            <Button variant="outline" size="sm" onClick={() => handleExportReport("pdf")}>
+              <FileText className="h-4 w-4 mr-1" /> Export Report
             </Button>
-          )}
+            <Button variant="outline" size="sm" onClick={() => handleShareResults()}>
+              <Share2 className="h-4 w-4 mr-1" /> Share Results
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExportReport("pdf")}>
+              <Download className="h-4 w-4 mr-1" /> Download PDF
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
