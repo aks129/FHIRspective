@@ -1,8 +1,9 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { ServerConnection, AssessmentConfig, AssessmentStatus } from "@/types";
 import AssessmentProgress from "./AssessmentProgress";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2 } from "lucide-react";
 
 interface ExecuteStepProps {
   assessmentConfig: AssessmentConfig;
@@ -21,24 +22,31 @@ export default function ExecuteStep({
   onNext,
   onPrev
 }: ExecuteStepProps) {
+  const [isStarting, setIsStarting] = useState(false);
+  
   // Start assessment automatically when component mounts
   useEffect(() => {
-    // Use a ref to track if we've already started the assessment
-    const shouldStartAssessment = !assessmentStatus && !isStarted.current;
+    const startAssessment = async () => {
+      // Only start if we haven't started already and don't have a status
+      if (!assessmentStatus && !isStarting) {
+        setIsStarting(true);
+        try {
+          await onStartAssessment();
+        } catch (error) {
+          console.error("Failed to start assessment:", error);
+        } finally {
+          setIsStarting(false);
+        }
+      }
+    };
     
-    if (shouldStartAssessment) {
-      isStarted.current = true;
-      onStartAssessment();
-    }
-  }, [assessmentStatus, onStartAssessment]);
-  
-  // Use a ref to prevent multiple calls to onStartAssessment
-  const isStarted = React.useRef(false);
+    startAssessment();
+  }, [assessmentStatus, onStartAssessment, isStarting]);
 
   // Check if assessment is complete
   const isComplete = assessmentStatus?.status === 'completed';
   const isFailed = assessmentStatus?.status === 'failed';
-  const isRunning = assessmentStatus?.status === 'running';
+  const isRunning = assessmentStatus?.status === 'running' || isStarting;
 
   return (
     <div className="fade-in">
@@ -47,9 +55,14 @@ export default function ExecuteStep({
           <CardTitle className="text-xl font-semibold text-gray-800">Assessment Progress</CardTitle>
         </CardHeader>
         <CardContent>
-          <AssessmentProgress
-            status={assessmentStatus}
-          />
+          {!assessmentStatus && isStarting ? (
+            <div className="flex flex-col items-center justify-center py-10">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+              <p className="text-gray-600">Starting assessment...</p>
+            </div>
+          ) : (
+            <AssessmentProgress status={assessmentStatus} />
+          )}
         </CardContent>
         <CardFooter className="flex justify-between pt-6 mt-4 border-t border-gray-200">
           <Button

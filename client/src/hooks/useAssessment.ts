@@ -192,6 +192,17 @@ export function useAssessment() {
         });
         return null;
       }
+      
+      // Verify that at least one resource is selected
+      const hasSelectedResources = Object.values(assessmentConfig.resources).some(isSelected => isSelected);
+      if (!hasSelectedResources) {
+        toast({
+          title: "No Resources Selected",
+          description: "Please select at least one resource to include in the assessment.",
+          variant: "destructive",
+        });
+        return null;
+      }
 
       // Create the assessment
       const assessment = await createAssessmentMutation.mutateAsync({
@@ -204,14 +215,22 @@ export function useAssessment() {
 
       // Start the assessment
       await startAssessmentMutation.mutateAsync(assessment.id);
+      
+      // After starting the assessment, trigger a refresh of the status
+      queryClient.invalidateQueries({ queryKey: ['/api/assessments', assessment.id, 'status'] });
 
       // Return the assessment ID
       return assessment.id;
     } catch (error) {
       console.error("Failed to start assessment:", error);
+      toast({
+        title: "Assessment Failed",
+        description: error instanceof Error ? error.message : "An unknown error occurred",
+        variant: "destructive",
+      });
       return null;
     }
-  }, [currentAssessmentId, serverConnection, assessmentConfig, createAssessmentMutation, startAssessmentMutation, toast]);
+  }, [currentAssessmentId, serverConnection, assessmentConfig, createAssessmentMutation, startAssessmentMutation, toast, queryClient]);
 
   return {
     // Server connection
