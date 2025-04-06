@@ -13,6 +13,14 @@ export interface MetricTooltipProps {
 }
 
 const dimensionDescriptions: Record<string, { description: string; examples: string[] }> = {
+  upcoming: {
+    description: 'This feature is coming soon in a future release.',
+    examples: [
+      'This functionality is currently under development',
+      'Check back soon for this capability',
+      'Feature will be available in the next release'
+    ]
+  },
   completeness: {
     description: 'Measures the presence of expected data elements. Higher scores indicate fewer missing required fields.',
     examples: [

@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   Cell,
   LabelList
@@ -26,6 +26,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface ResourceDetailViewProps {
   resource: ResourceQualityScore;
@@ -48,6 +55,9 @@ export default function ResourceDetailView({
   
   // State to track expanded issue details
   const [expandedIssue, setExpandedIssue] = useState<number | null>(null);
+  
+  // State to track the Implementation Guide profile selection for completeness assessment
+  const [igProfile, setIgProfile] = useState<string>("all");
   
   // Prepare dimension data for the chart
   const dimensionData = Object.entries(resource.dimensionScores)
@@ -184,7 +194,7 @@ export default function ResourceDetailView({
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" domain={[0, 100]} />
                 <YAxis type="category" dataKey="dimension" />
-                <Tooltip 
+                <RechartsTooltip 
                   wrapperStyle={{ 
                     backgroundColor: 'white', 
                     border: '1px solid #f0f0f0', 
@@ -297,6 +307,26 @@ export default function ResourceDetailView({
               </MetricTooltip>
             </div>
           </div>
+          
+          {selectedDimension === "completeness" && (
+            <div className="mt-3 flex items-center border-t pt-3">
+              <div className="text-sm font-medium text-gray-700 mr-3">Implementation Guide Profile:</div>
+              <Select value={igProfile} onValueChange={setIgProfile}>
+                <SelectTrigger className="w-[250px]">
+                  <SelectValue placeholder="Select profile" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All data elements</SelectItem>
+                  <SelectItem value="required">Required elements (Must have)</SelectItem>
+                  <SelectItem value="must-support">Must Support elements (Nice to have)</SelectItem>
+                  <SelectItem value="optional">Optional elements (Everything)</SelectItem>
+                </SelectContent>
+              </Select>
+              <MetricTooltip dimension="completeness">
+                <HelpCircle className="h-4 w-4 ml-2 text-gray-400" />
+              </MetricTooltip>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
@@ -358,12 +388,16 @@ export default function ResourceDetailView({
                       )}
                       
                       <div className="mt-3 pt-2 border-t flex justify-between">
-                        <Button variant="link" size="sm" className="h-6 px-0 text-primary">
-                          <ArrowUpRight className="h-3 w-3 mr-1" /> View affected resources
-                        </Button>
-                        <Button variant="link" size="sm" className="h-6 px-0 text-emerald-600">
-                          <ArrowUpRight className="h-3 w-3 mr-1" /> See remediation options
-                        </Button>
+                        <MetricTooltip dimension="upcoming">
+                          <Button variant="link" size="sm" className="h-6 px-0 text-primary" disabled>
+                            <ArrowUpRight className="h-3 w-3 mr-1" /> View affected resources
+                          </Button>
+                        </MetricTooltip>
+                        <MetricTooltip dimension="upcoming">
+                          <Button variant="link" size="sm" className="h-6 px-0 text-emerald-600" disabled>
+                            <ArrowUpRight className="h-3 w-3 mr-1" /> See remediation options
+                          </Button>
+                        </MetricTooltip>
                       </div>
                     </div>
                   </CollapsibleContent>
