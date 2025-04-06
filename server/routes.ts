@@ -5,7 +5,8 @@ import {
   insertFhirServerSchema, 
   insertAssessmentSchema,
   insertAssessmentResultSchema,
-  insertAssessmentLogSchema
+  insertAssessmentLogSchema,
+  FhirServer
 } from "@shared/schema";
 import { fhirService } from "./services/fhirService";
 import { validatorService } from "./services/validatorService";
@@ -49,14 +50,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { url, authType, username, password, token, timeout } = req.body;
       
-      const connectionResult = await fhirService.testConnection({
+      // Create a complete server connection object with the right types
+      const serverConnection: FhirServer = {
+        id: 0, // Temp ID for test purposes
         url,
         authType,
-        username,
-        password,
-        token,
-        timeout: timeout || 30
-      });
+        username: username || null,
+        password: password || null,
+        token: token || null,
+        timeout: typeof timeout === 'number' ? timeout : parseInt(timeout) || 30,
+        lastUsed: new Date(),
+        userId: null
+      };
+      
+      const connectionResult = await fhirService.testConnection(serverConnection);
       
       res.json(connectionResult);
     } catch (error) {
@@ -169,12 +176,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const logs = await storage.getAssessmentLogsByAssessment(id);
       const results = await storage.getAssessmentResultsByAssessment(id);
+      const progress = assessmentService.getProgress(id);
       
+      // Format response to match AssessmentStatus interface expected by the client
       res.json({
-        assessment,
-        logs,
-        results,
-        progress: assessmentService.getProgress(id)
+        status: assessment.status,
+        progress: progress,
+        logs: logs,
+        // Include summary if assessment is completed and we have results
+        summary: assessment.status === 'completed' && results.length > 0 ? {
+          totalResourcesEvaluated: results.reduce((sum, r) => sum + r.resourcesEvaluated, 0),
+          totalIssuesIdentified: results.reduce((sum, r) => sum + r.issuesIdentified, 0),
+          totalAutoFixed: results.reduce((sum, r) => sum + r.autoFixed, 0),
+          overallQualityScore: results.reduce((sum, r) => sum + r.qualityScore, 0) / results.length,
+          resourceScores: results.map(r => ({
+            resourceType: r.resourceType,
+            overallScore: r.qualityScore,
+            dimensionScores: {
+              completeness: r.completenessScore,
+              conformity: r.conformityScore,
+              plausibility: r.plausibilityScore,
+              timeliness: r.timelinessScore || undefined,
+              calculability: r.calculabilityScore || undefined
+            },
+            issuesCount: r.issuesIdentified
+          })),
+          topIssues: results.flatMap(r => {
+            try {
+              // Parse the JSON string into an array of QualityIssue objects
+              return JSON.parse(r.issues) as any[];
+            } catch (e) {
+              console.error(`Failed to parse issues JSON for result ID ${r.id}:`, e);
+              return [];
+            }
+          }).slice(0, 10)
+        } : undefined
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch assessment status" });
@@ -192,8 +228,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const results = await storage.getAssessmentResultsByAssessment(id);
       
-      res.json(results);
+      if (results.length === 0) {
+        return res.status(404).json({ error: "No results found for this assessment" });
+      }
+      
+      // Format response to match AssessmentSummary interface expected by the client
+      const summary = {
+        totalResourcesEvaluated: results.reduce((sum, r) => sum + r.resourcesEvaluated, 0),
+        totalIssuesIdentified: results.reduce((sum, r) => sum + r.issuesIdentified, 0),
+        totalAutoFixed: results.reduce((sum, r) => sum + r.autoFixed, 0),
+        overallQualityScore: results.reduce((sum, r) => sum + r.qualityScore, 0) / results.length,
+        resourceScores: results.map(r => ({
+          resourceType: r.resourceType,
+          overallScore: r.qualityScore,
+          dimensionScores: {
+            completeness: r.completenessScore,
+            conformity: r.conformityScore,
+            plausibility: r.plausibilityScore,
+            timeliness: r.timelinessScore || undefined,
+            calculability: r.calculabilityScore || undefined
+          },
+          issuesCount: r.issuesIdentified
+        })),
+        topIssues: results
+          .flatMap(r => {
+            try {
+              // Parse the JSON string into an array of QualityIssue objects
+              return JSON.parse(r.issues) as any[];
+            } catch (e) {
+              console.error(`Failed to parse issues JSON for ${r.resourceType}:`, e);
+              return [];
+            }
+          })
+          .slice(0, 10)
+      };
+      
+      res.json(summary);
     } catch (error) {
+      console.error("Error fetching assessment results:", error);
       res.status(500).json({ error: "Failed to fetch assessment results" });
     }
   });
