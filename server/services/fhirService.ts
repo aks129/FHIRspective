@@ -2,7 +2,10 @@
  * Service for interacting with FHIR servers
  */
 
-import { ServerConnection } from "@shared/schema";
+import { FhirServer } from "@shared/schema";
+
+// Using FhirServer type as ServerConnection
+type ServerConnection = FhirServer;
 
 export interface ConnectionTestResult {
   success: boolean;
@@ -74,6 +77,8 @@ class FhirService {
    */
   async fetchResources(connection: ServerConnection, resourceType: string, count: number | 'all'): Promise<any[]> {
     try {
+      console.log(`Starting fetch of ${resourceType} resources from ${connection.url}`);
+      
       // Build request options with authentication
       const options: RequestInit = {
         method: 'GET',
@@ -86,23 +91,31 @@ class FhirService {
         url += `?_count=${count}`;
       }
       
+      console.log(`Fetching from URL: ${url}`);
       const response = await fetch(url, options);
       
       if (!response.ok) {
-        throw new Error(`Error fetching ${resourceType}: ${response.status} ${response.statusText}`);
+        const errorMsg = `Error fetching ${resourceType}: ${response.status} ${response.statusText}`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
       }
       
+      console.log(`Response received for ${resourceType}, parsing JSON...`);
       const bundle = await response.json();
+      console.log(`JSON parsed for ${resourceType} bundle`);
       
       // Extract resources from bundle
       if (bundle.resourceType === 'Bundle' && Array.isArray(bundle.entry)) {
-        return bundle.entry.map(entry => entry.resource);
+        console.log(`Found ${bundle.entry.length} ${resourceType} resources in bundle`);
+        return bundle.entry.map((entry: any) => entry.resource);
       }
       
+      console.log(`No resources found for ${resourceType} or invalid bundle format`);
       return [];
     } catch (error) {
       console.error(`Error fetching ${resourceType} resources:`, error);
-      throw error;
+      // Return empty array instead of throwing to prevent the entire assessment from failing
+      return [];
     }
   }
   

@@ -141,6 +141,7 @@ class AssessmentService {
     implementationGuide: string
   ): Promise<void> {
     try {
+      console.log(`Starting to process resource type: ${resourceType}`);
       // Update progress status to in-progress
       this.updateResourceStatus(assessment.id, resourceType, 'in-progress');
       
@@ -150,8 +151,25 @@ class AssessmentService {
         level: "info"
       });
 
+      console.log(`Fetching ${resourceType} resources from server ${server.url}`);
       // Fetch resources from FHIR server
       const resources = await fhirService.fetchResources(server, resourceType, sampleSize);
+      console.log(`Fetched ${resources.length} ${resourceType} resources`);
+      
+      // Handle case with no resources
+      if (resources.length === 0) {
+        console.log(`No ${resourceType} resources found or error occurred`);
+        await storage.createAssessmentLog({
+          assessmentId: assessment.id,
+          message: `No ${resourceType} resources found or error fetching resources`,
+          level: "warning"
+        });
+        
+        // Mark this resource type as complete with 0 resources
+        this.assessmentProgress[assessment.id].resourceProgress[resourceType].total = 0;
+        this.updateResourceStatus(assessment.id, resourceType, 'complete');
+        return;
+      }
       
       // Update total count in progress tracking
       if (resources.length !== this.assessmentProgress[assessment.id].resourceProgress[resourceType].total) {
