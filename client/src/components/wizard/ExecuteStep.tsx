@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { ServerConnection, AssessmentConfig, AssessmentStatus } from "@/types";
 import AssessmentProgress from "./AssessmentProgress";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,17 @@ export default function ExecuteStep({
 }: ExecuteStepProps) {
   // Start assessment automatically when component mounts
   useEffect(() => {
-    if (!assessmentStatus) {
+    // Use a ref to track if we've already started the assessment
+    const shouldStartAssessment = !assessmentStatus && !isStarted.current;
+    
+    if (shouldStartAssessment) {
+      isStarted.current = true;
       onStartAssessment();
     }
   }, [assessmentStatus, onStartAssessment]);
+  
+  // Use a ref to prevent multiple calls to onStartAssessment
+  const isStarted = React.useRef(false);
 
   // Check if assessment is complete
   const isComplete = assessmentStatus?.status === 'completed';

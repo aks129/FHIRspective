@@ -131,11 +131,17 @@ export function useAssessment() {
     data: assessmentStatus,
     isLoading: isLoadingStatus,
     refetch: refetchStatus
-  } = useQuery({
+  } = useQuery<AssessmentStatus | null>({
     queryKey: ['/api/assessments', currentAssessmentId, 'status'],
+    queryFn: async () => {
+      if (!currentAssessmentId) return null;
+      const response = await apiRequest('GET', `/api/assessments/${currentAssessmentId}/status`);
+      return response.json();
+    },
     enabled: currentAssessmentId !== null,
-    refetchInterval: (data: AssessmentStatus) => {
+    refetchInterval: (query) => {
       // Only poll if the assessment is running
+      const data = query.state.data as AssessmentStatus | null;
       return (data?.status === 'running') ? STATUS_POLL_INTERVAL : false;
     },
   });
@@ -144,8 +150,13 @@ export function useAssessment() {
   const { 
     data: assessmentResults,
     isLoading: isLoadingResults
-  } = useQuery({
+  } = useQuery<AssessmentSummary>({
     queryKey: ['/api/assessments', currentAssessmentId, 'results'],
+    queryFn: async () => {
+      if (!currentAssessmentId) throw new Error("No assessment ID");
+      const response = await apiRequest('GET', `/api/assessments/${currentAssessmentId}/results`);
+      return response.json();
+    },
     enabled: currentAssessmentId !== null && assessmentStatus?.status === 'completed',
   });
 
@@ -168,13 +179,18 @@ export function useAssessment() {
   // Start a new assessment with the current configuration
   const startAssessment = useCallback(async () => {
     try {
+      // If an assessment is already in progress, don't start a new one
+      if (currentAssessmentId) {
+        return currentAssessmentId;
+      }
+      
       if (!serverConnection.id) {
         toast({
           title: "Server Connection Required",
           description: "Please select or create a server connection first.",
           variant: "destructive",
         });
-        return;
+        return null;
       }
 
       // Create the assessment
@@ -195,7 +211,7 @@ export function useAssessment() {
       console.error("Failed to start assessment:", error);
       return null;
     }
-  }, [serverConnection, assessmentConfig, createAssessmentMutation, startAssessmentMutation, toast]);
+  }, [currentAssessmentId, serverConnection, assessmentConfig, createAssessmentMutation, startAssessmentMutation, toast]);
 
   return {
     // Server connection
