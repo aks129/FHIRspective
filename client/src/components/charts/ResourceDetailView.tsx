@@ -26,6 +26,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ResourceViewerDialog } from '@/components/resource/ResourceViewerDialog';
+import { RemediationDialog } from '@/components/resource/RemediationDialog';
 import {
   Select,
   SelectContent,
@@ -58,6 +60,71 @@ export default function ResourceDetailView({
   
   // State to track the Implementation Guide profile selection for completeness assessment
   const [igProfile, setIgProfile] = useState<string>("all");
+  
+  // State for dialogs
+  const [resourceViewerOpen, setResourceViewerOpen] = useState(false);
+  const [remediationOpen, setRemediationOpen] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<QualityIssue | null>(null);
+  
+  // Mock FHIR resources for demonstration
+  const mockResources = [
+    {
+      resourceType: resource.resourceType,
+      id: "example1",
+      meta: {
+        versionId: "1",
+        lastUpdated: "2023-01-15T12:00:00Z"
+      },
+      status: "active",
+      code: {
+        coding: [
+          {
+            system: "http://loinc.org",
+            code: "8480-6",
+            display: "Systolic blood pressure"
+          }
+        ]
+      },
+      subject: {
+        reference: "Patient/123"
+      },
+      effectiveDateTime: "2023-01-14T10:30:00Z",
+      valueQuantity: {
+        value: 120,
+        unit: "mmHg",
+        system: "http://unitsofmeasure.org",
+        code: "mm[Hg]"
+      }
+    },
+    {
+      resourceType: resource.resourceType,
+      id: "example2",
+      meta: {
+        versionId: "2",
+        lastUpdated: "2023-01-16T09:15:00Z"
+      },
+      status: "final",
+      code: {
+        coding: [
+          {
+            system: "http://loinc.org",
+            code: "8462-4",
+            display: "Diastolic blood pressure"
+          }
+        ]
+      },
+      subject: {
+        reference: "Patient/456"
+      },
+      effectiveDateTime: "2023-01-16T08:45:00Z",
+      valueQuantity: {
+        value: 80,
+        unit: "mmHg",
+        system: "http://unitsofmeasure.org",
+        code: "mm[Hg]"
+      }
+    }
+  ];
   
   // Prepare dimension data for the chart
   const dimensionData = Object.entries(resource.dimensionScores)
@@ -308,7 +375,7 @@ export default function ResourceDetailView({
             </div>
           </div>
           
-          {selectedDimension === "completeness" && (
+          {selectedDimension?.toLowerCase() === "completeness" && (
             <div className="mt-3 flex items-center border-t pt-3">
               <div className="text-sm font-medium text-gray-700 mr-3">Implementation Guide Profile:</div>
               <Select value={igProfile} onValueChange={setIgProfile}>
@@ -388,16 +455,28 @@ export default function ResourceDetailView({
                       )}
                       
                       <div className="mt-3 pt-2 border-t flex justify-between">
-                        <MetricTooltip dimension="upcoming">
-                          <Button variant="link" size="sm" className="h-6 px-0 text-primary" disabled>
-                            <ArrowUpRight className="h-3 w-3 mr-1" /> View affected resources
-                          </Button>
-                        </MetricTooltip>
-                        <MetricTooltip dimension="upcoming">
-                          <Button variant="link" size="sm" className="h-6 px-0 text-emerald-600" disabled>
-                            <ArrowUpRight className="h-3 w-3 mr-1" /> See remediation options
-                          </Button>
-                        </MetricTooltip>
+                        <Button 
+                          variant="link" 
+                          size="sm" 
+                          className="h-6 px-0 text-primary"
+                          onClick={() => {
+                            setSelectedIssue(issue);
+                            setResourceViewerOpen(true);
+                          }}
+                        >
+                          <ArrowUpRight className="h-3 w-3 mr-1" /> View affected resources
+                        </Button>
+                        <Button 
+                          variant="link" 
+                          size="sm" 
+                          className="h-6 px-0 text-emerald-600"
+                          onClick={() => {
+                            setSelectedIssue(issue);
+                            setRemediationOpen(true);
+                          }}
+                        >
+                          <ArrowUpRight className="h-3 w-3 mr-1" /> See remediation options
+                        </Button>
                       </div>
                     </div>
                   </CollapsibleContent>
@@ -414,6 +493,25 @@ export default function ResourceDetailView({
           </div>
         </CardContent>
       </Card>
+      
+      {/* Resource Viewer Dialog */}
+      {selectedIssue && (
+        <ResourceViewerDialog
+          open={resourceViewerOpen}
+          onOpenChange={setResourceViewerOpen}
+          resources={mockResources}
+          issue={selectedIssue}
+        />
+      )}
+      
+      {/* Remediation Dialog */}
+      {selectedIssue && (
+        <RemediationDialog
+          open={remediationOpen}
+          onOpenChange={setRemediationOpen}
+          issue={selectedIssue}
+        />
+      )}
     </div>
   );
 }
