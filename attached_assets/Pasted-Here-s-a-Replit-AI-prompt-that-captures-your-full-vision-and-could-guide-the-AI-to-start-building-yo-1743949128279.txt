@@ -1,0 +1,78 @@
+Here’s a Replit AI prompt that captures your full vision and could guide the AI to start building your FHIR Data Quality Assessor App. I also gave it a catchy name—FHIRSpective (like “Perspective” + FHIR).
+
+⸻
+
+Prompt for Replit AI:
+
+⸻
+
+Build an application named FHIRSpective — a FHIR Data Quality Assessor App.
+
+This web-based app should evaluate data quality from FHIR servers using flexible configurations and standards. Here are the core requirements:
+
+⸻
+
+Core Functionality
+	1.	FHIR Server Connection
+	•	Support connecting to any FHIR server (FHIR version R4B).
+	•	Let users input server URL and credentials (if needed).
+	2.	Resource Selection
+	•	Let users select which FHIR resources to evaluate (e.g., Patient, Encounter, Observation).
+	•	Allow selection of sample size (e.g., 100, 1000, or all records).
+	3.	Validator Selection
+	•	Allow users to select a FHIR validator (Inferno, HAPI, or custom).
+	•	Run validation jobs in background or asynchronously.
+	4.	Implementation Guide (IG) Support
+	•	Let users choose an IG to validate against (e.g., US Core, CARIN Blue Button, Da Vinci).
+	5.	Purpose of Use
+	•	Provide checkboxes/dropdowns to select the purpose:
+	•	Product use
+	•	Consumer-facing
+	•	Provider-facing
+	•	Analytics
+	•	Quality Reporting
+	6.	Data Quality Framework
+	•	Let user select a data quality framework to assess against, such as the Kahn Data Quality Framework.
+	•	Dimensions: Completeness, Conformity, Plausibility, Timeliness, etc.
+	7.	Remediation & Enrichment
+	•	Identify fixable issues and auto-correct them if possible.
+	•	Flag unfixable issues for user review.
+	8.	Writeback & Export Options
+	•	If server supports it and user grants permission:
+	•	Write back a meta.tag or flag to problematic FHIR resources.
+	•	Alternatively:
+	•	Output a FHIR Bundle (NDJSON or JSON) with flagged/fixed resources.
+	9.	Data Quality Visualization
+	•	Show overall data quality score by resource.
+	•	Break down by Kahn framework dimensions.
+	•	Include color-coded compliance heatmaps and charts.
+	10.	Dashboard Integration
+
+	•	Use an open-source BI tool (e.g., Apache Superset, QuickSight equivalent, or Databricks dashboard).
+	•	Let users explore resource-level and attribute-level issues.
+
+	11.	Summary Report Generation
+
+	•	Auto-generate a PDF or web-based summary report.
+	•	Highlight issues by data source (if available via meta.source or organization).
+	•	Include visuals and exportable tables.
+
+⸻
+
+Tech Stack Guidance (if needed):
+	•	Frontend: React.js or Next.js
+	•	Backend: Node.js with Express or Python Flask
+	•	FHIR Interaction: Use FHIR.js or Python fhirclient
+	•	Visualization: D3.js, Chart.js, or Apache ECharts
+	•	Dashboard: Superset or integration with Databricks
+	•	Validation: Interface with Inferno or use HAPI validator
+	•	Authentication: SMART on FHIR optional for OAuth2
+
+⸻
+
+Stretch Goal:
+Add user login and the ability to save past assessments, track trends, and compare data quality across time.
+
+⸻
+
+Let me know if you’d like me to generate code scaffolding or a mock UI layout too.
