@@ -204,7 +204,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           topIssues: results.flatMap(r => {
             try {
               // Parse the JSON string into an array of QualityIssue objects
-              return JSON.parse(r.issues) as any[];
+              if (typeof r.issues === 'string') {
+                return JSON.parse(r.issues) as any[];
+              } else if (Array.isArray(r.issues)) {
+                return r.issues;
+              } else {
+                console.error(`Invalid issues format for result ID ${r.id}`);
+                return [];
+              }
             } catch (e) {
               console.error(`Failed to parse issues JSON for result ID ${r.id}:`, e);
               return [];
@@ -254,7 +261,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .flatMap(r => {
             try {
               // Parse the JSON string into an array of QualityIssue objects
-              return JSON.parse(r.issues) as any[];
+              if (typeof r.issues === 'string') {
+                return JSON.parse(r.issues) as any[];
+              } else if (Array.isArray(r.issues)) {
+                return r.issues;
+              } else {
+                console.error(`Invalid issues format for resource type ${r.resourceType}`);
+                return [];
+              }
             } catch (e) {
               console.error(`Failed to parse issues JSON for ${r.resourceType}:`, e);
               return [];
