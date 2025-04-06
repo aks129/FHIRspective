@@ -3,7 +3,10 @@
  */
 
 import { fhirService } from "./fhirService";
-import { ServerConnection } from "@shared/schema";
+import { FhirServer } from "@shared/schema";
+
+// Using FhirServer type as ServerConnection
+type ServerConnection = FhirServer;
 
 export interface ValidationResult {
   resourceType: string;
@@ -35,16 +38,44 @@ class ValidatorService {
     validator: string,
     implementationGuide: string
   ): Promise<ValidationResult[]> {
-    // Choose the appropriate validation method based on the validator type
-    switch (validator) {
-      case 'inferno':
-        return this.validateWithInferno(resources, resourceType, implementationGuide);
-      case 'hapi':
-        return this.validateWithHapi(connection, resources, resourceType, implementationGuide);
-      case 'custom':
-        return this.validateWithCustomRules(resources, resourceType, implementationGuide);
-      default:
-        throw new Error(`Unsupported validator: ${validator}`);
+    console.log(`Starting validation of ${resources.length} ${resourceType} resources using ${validator} validator`);
+    
+    try {
+      // Choose the appropriate validation method based on the validator type
+      let results: ValidationResult[];
+      
+      switch (validator) {
+        case 'inferno':
+          results = await this.validateWithInferno(resources, resourceType, implementationGuide);
+          break;
+        case 'hapi':
+          results = await this.validateWithHapi(connection, resources, resourceType, implementationGuide);
+          break;
+        case 'custom':
+          results = await this.validateWithCustomRules(resources, resourceType, implementationGuide);
+          break;
+        default:
+          console.error(`Unsupported validator: ${validator}, using custom rules instead`);
+          results = await this.validateWithCustomRules(resources, resourceType, implementationGuide);
+      }
+      
+      console.log(`Completed validation of ${results.length} ${resourceType} resources`);
+      return results;
+    } catch (error) {
+      console.error(`Error during validation of ${resourceType} resources:`, error);
+      // Return empty results to prevent the entire assessment from failing
+      return resources.map(resource => ({
+        resourceType: resource.resourceType || resourceType,
+        resourceId: resource.id || 'unknown',
+        valid: false,
+        issues: [{
+          severity: 'error',
+          code: 'processing-error',
+          diagnostics: `Validation failed: ${error instanceof Error ? error.message : String(error)}`,
+          dimension: 'conformity',
+          fixable: false
+        }]
+      }));
     }
   }
 
@@ -95,22 +126,28 @@ class ValidatorService {
     resourceType: string,
     implementationGuide: string
   ): Promise<ValidationResult[]> {
+    console.log(`Performing local validation on ${resources.length} ${resourceType} resources`);
     const results: ValidationResult[] = [];
 
-    for (const resource of resources) {
-      const issues: ValidationIssue[] = [];
-      const fixedIssues: ValidationIssue[] = [];
+    try {
+      for (let i = 0; i < resources.length; i++) {
+        try {
+          const resource = resources[i];
+          console.log(`Validating ${resourceType} resource ${i+1}/${resources.length}, id: ${resource.id || 'unknown'}`);
+          
+          const issues: ValidationIssue[] = [];
+          const fixedIssues: ValidationIssue[] = [];
 
-      // Validate resource type
-      if (resource.resourceType !== resourceType) {
-        issues.push({
-          severity: 'error',
-          code: 'invalid-resource-type',
-          diagnostics: `Resource type mismatch: expected ${resourceType}, got ${resource.resourceType}`,
-          dimension: 'conformity',
-          fixable: false
-        });
-      }
+          // Validate resource type
+          if (resource.resourceType !== resourceType) {
+            issues.push({
+              severity: 'error',
+              code: 'invalid-resource-type',
+              diagnostics: `Resource type mismatch: expected ${resourceType}, got ${resource.resourceType}`,
+              dimension: 'conformity',
+              fixable: false
+            });
+          }
 
       // Check for required fields based on resource type
       switch (resourceType) {
@@ -144,9 +181,42 @@ class ValidatorService {
         issues,
         fixedIssues: fixedIssues.length > 0 ? fixedIssues : undefined
       });
+        } catch (resourceError) {
+          console.error(`Error validating individual resource:`, resourceError);
+          // Add the resource with an error
+          results.push({
+            resourceType: resourceType,
+            resourceId: resources[i]?.id || 'unknown',
+            valid: false,
+            issues: [{
+              severity: 'error',
+              code: 'processing-error',
+              diagnostics: `Resource validation failed: ${resourceError instanceof Error ? resourceError.message : String(resourceError)}`,
+              dimension: 'conformity',
+              fixable: false
+            }]
+          });
+        }
+      }
+      
+      console.log(`Completed local validation of ${results.length} ${resourceType} resources`);
+      return results;
+    } catch (error) {
+      console.error(`Fatal error during local validation of ${resourceType} resources:`, error);
+      // Return basic results to prevent the entire assessment from failing
+      return [{
+        resourceType: resourceType,
+        resourceId: 'unknown',
+        valid: false,
+        issues: [{
+          severity: 'error',
+          code: 'processing-error',
+          diagnostics: `Validation process failed: ${error instanceof Error ? error.message : String(error)}`,
+          dimension: 'conformity',
+          fixable: false
+        }]
+      }];
     }
-
-    return results;
   }
 
   /**
