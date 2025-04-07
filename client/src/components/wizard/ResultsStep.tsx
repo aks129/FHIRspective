@@ -3,6 +3,8 @@ import ResultsSummary from "./ResultsSummary";
 import QualityDashboard from "./QualityDashboard";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { ExportButton } from "@/components/export/ExportButton";
+import { useAssessment } from "@/hooks/useAssessment";
 
 interface ResultsStepProps {
   assessmentResults?: AssessmentSummary;
@@ -16,6 +18,7 @@ export default function ResultsStep({
   onPrev
 }: ResultsStepProps) {
   const { toast } = useToast();
+  const { currentAssessmentId } = useAssessment();
 
   // Function to handle exporting the report in different formats
   const handleExportReport = (format: "pdf" | "json" | "csv") => {
@@ -82,12 +85,13 @@ export default function ResultsStep({
           >
             Start New Assessment
           </Button>
-          <Button 
-            className="bg-primary hover:bg-primary-dark text-white"
-            onClick={() => handleExportReport("pdf")}
-          >
-            Download Full Report
-          </Button>
+          {currentAssessmentId && (
+            <ExportButton 
+              assessmentId={currentAssessmentId}
+              variant="default"
+              size="default"
+            />
+          )}
         </div>
       </div>
     </div>

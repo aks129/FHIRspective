@@ -14,6 +14,8 @@ import { assessmentService } from "./services/assessmentService";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 
+import { exportService } from './services/exportService';
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // FHIR Server API routes
   app.get("/api/fhir-servers", async (req: Request, res: Response) => {
@@ -298,6 +300,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(logs);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch assessment logs" });
+    }
+  });
+  
+  // Export assessment results
+  app.get("/api/assessments/:id/export", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const format = (req.query.format as string) || 'pdf';
+      
+      if (format !== 'pdf' && format !== 'csv') {
+        return res.status(400).json({ error: "Format must be 'pdf' or 'csv'" });
+      }
+      
+      const assessment = await storage.getAssessment(id);
+      
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+      
+      if (assessment.status !== 'completed') {
+        return res.status(400).json({ error: "Cannot export results for an assessment that is not completed" });
+      }
+      
+      // Get the related FHIR server
+      const server = await storage.getFhirServer(assessment.serverId);
+      
+      if (!server) {
+        return res.status(404).json({ error: "FHIR server not found" });
+      }
+      
+      // Get assessment results
+      const results = await storage.getAssessmentResultsByAssessment(id);
+      
+      if (results.length === 0) {
+        return res.status(404).json({ error: "No results found for this assessment" });
+      }
+      
+      // Process results to get quality scores
+      const qualityScores: Record<string, number> = {
+        completeness: results.reduce((sum, r) => sum + r.completenessScore, 0) / results.length,
+        conformity: results.reduce((sum, r) => sum + r.conformityScore, 0) / results.length,
+        plausibility: results.reduce((sum, r) => sum + r.plausibilityScore, 0) / results.length
+      };
+      
+      // Add optional scores if they exist
+      const hasTimeliness = results.some(r => r.timelinessScore !== null);
+      const hasCalculability = results.some(r => r.calculabilityScore !== null);
+      
+      if (hasTimeliness) {
+        qualityScores.timeliness = results.reduce((sum, r) => sum + (r.timelinessScore || 0), 0) / 
+          results.filter(r => r.timelinessScore !== null).length;
+      }
+      
+      if (hasCalculability) {
+        qualityScores.calculability = results.reduce((sum, r) => sum + (r.calculabilityScore || 0), 0) / 
+          results.filter(r => r.calculabilityScore !== null).length;
+      }
+      
+      // Export based on format
+      if (format === 'pdf') {
+        // Generate PDF
+        const pdfBuffer = await exportService.exportToPdf(assessment, server, results, qualityScores);
+        
+        // Set response headers
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="assessment-${id}-report.pdf"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        
+        // Send the PDF
+        res.send(pdfBuffer);
+      } else {
+        // Generate CSV
+        const csvContent = await exportService.exportToCsv(assessment, server, results, qualityScores);
+        
+        // Set response headers
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="assessment-${id}-report.csv"`);
+        
+        // Send the CSV
+        res.send(csvContent);
+      }
+    } catch (error) {
+      console.error("Error exporting assessment results:", error);
+      res.status(500).json({ error: "Failed to export assessment results" });
     }
   });
 
