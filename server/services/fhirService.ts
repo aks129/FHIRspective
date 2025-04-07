@@ -28,8 +28,11 @@ class FhirService {
         signal: AbortSignal.timeout(connection.timeout * 1000)
       };
       
+      // Normalize the URL
+      const baseUrl = this.normalizeUrl(connection.url);
+      
       // Try to fetch the CapabilityStatement/metadata
-      const response = await fetch(`${connection.url}/metadata`, options);
+      const response = await fetch(`${baseUrl}/metadata`, options);
       
       if (!response.ok) {
         return {
@@ -86,7 +89,10 @@ class FhirService {
         signal: AbortSignal.timeout(connection.timeout * 1000)
       };
       
-      let url = `${connection.url}/${resourceType}`;
+      // Normalize the URL
+      const baseUrl = this.normalizeUrl(connection.url);
+      
+      let url = `${baseUrl}/${resourceType}`;
       if (count !== 'all') {
         url += `?_count=${count}`;
       }
@@ -168,6 +174,19 @@ class FhirService {
   private isCompatibleFhirVersion(version: string): boolean {
     // Accept R4 (4.0.1) or R4B (4.3.0)
     return version.startsWith('4.0.') || version.startsWith('4.3.') || version === '4.0.1' || version === '4.3.0';
+  }
+  
+  /**
+   * Normalize URL by trimming whitespace and removing trailing slashes
+   */
+  private normalizeUrl(url: string): string {
+    // Trim whitespace
+    let normalizedUrl = url.trim();
+    // Remove trailing slash if present
+    if (normalizedUrl.endsWith('/')) {
+      normalizedUrl = normalizedUrl.slice(0, -1);
+    }
+    return normalizedUrl;
   }
 }
 
