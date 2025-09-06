@@ -37,7 +37,7 @@ export async function createApp() {
     next();
   });
 
-  const server = await registerRoutes(app);
+  await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -47,14 +47,8 @@ export async function createApp() {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
-
+  // For serverless environments like Vercel, we don't setup Vite or serve static files
+  // Vercel handles static file serving through the routing configuration
+  
   return app;
 }
