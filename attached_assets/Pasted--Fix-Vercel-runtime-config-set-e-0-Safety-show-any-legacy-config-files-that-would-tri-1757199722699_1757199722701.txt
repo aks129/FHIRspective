@@ -1,0 +1,58 @@
+# 🔧 Fix Vercel runtime config
+
+set -e
+
+# 0) Safety: show any legacy config files that would trigger this
+ls -la | grep -E 'now\.json|vercel\.json' || true
+
+# 1) Replace vercel.json with modern config (NO legacy "builds", NO unversioned runtimes)
+cat > vercel.json <<'EOF'
+{
+  "functions": {
+    "api/**/*.ts": { "runtime": "nodejs20.x", "maxDuration": 60, "memory": 1024 }
+  },
+  "routes": [
+    { "src": "^/api/(.*)$", "dest": "/api/index.ts" },
+    { "src": "/(.*)", "dest": "/dist/public/$1" }
+  ]
+}
+EOF
+
+# 2) Ensure the function also declares the runtime (belt + suspenders)
+if [ -f api/index.ts ]; then
+  if ! grep -q "runtime: 'nodejs20.x'" api/index.ts; then
+    # insert or replace export const config
+    # If there's an existing config export, we replace; otherwise we add.
+    if grep -q "export const config" api/index.ts; then
+      sed -i "s/export const config = {[^}]*}/export const config = { runtime: 'nodejs20.x', maxDuration: 60, memory: 1024 }/" api/index.ts
+    else
+      printf "\nexport const config = { runtime: 'nodejs20.x', maxDuration: 60, memory: 1024 };\n" >> api/index.ts
+    fi
+  fi
+fi
+
+# 3) Remove legacy now.json if present (causes the exact error you hit)
+[ -f now.json ] && git rm -f now.json || true
+
+# 4) Remove legacy "builds" or unversioned runtimes from vercel.json if any slipped in
+# (We already wrote a clean vercel.json above.)
+
+# 5) Make sure we don't have an old-style "builds" block in package.json > vercel config
+# (some repos accidentally embed it there)
+node - <<'EOF'
+const fs = require('fs');
+if (fs.existsSync('package.json')) {
+  const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+  if (pkg.now) delete pkg.now;           // ultra-legacy
+  if (pkg.vercel && pkg.vercel.builds) delete pkg.vercel.builds;
+  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+}
+EOF
+
+# 6) Rebuild client so /dist/public exists
+npm run build
+
+# 7) Commit & push
+git add vercel.json api/index.ts package.json
+git commit -m "fix(vercel): modern runtime config (nodejs20.x), remove legacy now/builds"
+git push
