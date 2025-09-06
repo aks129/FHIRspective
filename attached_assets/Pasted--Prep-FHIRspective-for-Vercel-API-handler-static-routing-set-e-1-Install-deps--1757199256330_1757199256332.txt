@@ -1,0 +1,104 @@
+# --- Prep FHIRspective for Vercel: API handler + static routing ---
+
+set -e
+
+# 1) Install deps
+npm install
+
+# 2) Create an Express app factory that DOES NOT call listen()
+mkdir -p server
+cat > server/app.ts <<'EOF'
+import express from "express";
+import { registerRoutes } from "./index"; // registerRoutes is exported from server/index.ts in your repo
+
+export async function createApp() {
+  const app = express();
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
+
+  // simple API request logging
+  app.use((req, res, next) => {
+    const start = Date.now();
+    const path = req.path;
+    let captured: unknown;
+    const orig = res.json.bind(res);
+    res.json = (body: unknown, ...args: any[]) => { captured = body; return orig(body, ...args); };
+    res.on("finish", () => {
+      const ms = Date.now() - start;
+      if (path.startsWith("/api")) {
+        let line = `${req.method} ${path} ${res.statusCode} in ${ms}ms`;
+        if (captured) line += ` :: ${JSON.stringify(captured)}`;
+        if (line.length > 80) line = line.slice(0, 79) + "…";
+        console.log(line);
+      }
+    });
+    next();
+  });
+
+  // register all routes onto this app (no http.createServer, no listen)
+  await registerRoutes(app);
+  return app;
+}
+EOF
+
+# 3) Serverless function entry for Vercel (Node runtime, NOT Edge)
+mkdir -p api
+cat > api/index.ts <<'EOF'
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createApp } from "../server/app";
+
+let cachedApp: any;
+
+export const config = {
+  runtime: "nodejs20.x",
+  maxDuration: 60,
+  memory: 1024
+};
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (!cachedApp) cachedApp = await createApp();
+  return cachedApp(req, res);
+}
+EOF
+
+# 4) Ensure Vite builds the client into dist/public (your current config already does)
+#    If your vite.config.ts already sets outDir to dist/public, do nothing.
+#    Otherwise, enforce it:
+if ! grep -q 'outDir: .*"dist/public"' vite.config.ts; then
+  sed -i 's#outDir: .*#outDir: path.resolve(import.meta.dirname, "dist/public"),#' vite.config.ts || true
+fi
+
+# 5) vercel.json to route /api/* to the function and everything else to dist/public
+cat > vercel.json <<'EOF'
+{
+  "functions": {
+    "api/index.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  },
+  "routes": [
+    { "src": "^/api/(.*)$", "dest": "/api/index.ts" },
+    { "src": "^(?!/api/).*", "dest": "/dist/public/$1" }
+  ]
+}
+EOF
+
+# 6) Stop bundling a standalone Node server in build (Vercel will run the API func)
+#    Replace build script to ONLY build the client via Vite
+#    (keep your server TS as source for the function; no need to esbuild it)
+tmpfile=$(mktemp)
+node - <<'EOF' "$tmpfile"
+const fs = require('fs');
+const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
+pkg.scripts = pkg.scripts || {};
+pkg.scripts.build = "vite build";
+pkg.scripts.dev = pkg.scripts.dev || "ts-node server/index.ts";
+fs.writeFileSync(process.argv[1], JSON.stringify(pkg, null, 2));
+EOF
+mv "$tmpfile" package.json
+
+# 7) (Optional but safe) remove any IIFE `listen()` path from server/index.ts by no-op patch:
+#    If your server/index.ts has an IIFE that calls listen(), we neutralize it for serverless.
+#    We won't delet
