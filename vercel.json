@@ -1,13 +1,9 @@
 {
   "functions": {
-    "api/index.ts": {
-      "runtime": "nodejs20.x",
-      "maxDuration": 60,
-      "memory": 1024
-    }
+    "api/**/*.ts": { "runtime": "nodejs20.x", "maxDuration": 60, "memory": 1024 }
   },
   "routes": [
     { "src": "^/api/(.*)$", "dest": "/api/index.ts" },
-    { "src": "^(?!/api/).*", "dest": "/dist/public/$1" }
+    { "src": "/(.*)", "dest": "/dist/public/$1" }
   ]
 }
