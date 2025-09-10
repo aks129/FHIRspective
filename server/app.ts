@@ -37,7 +37,7 @@ export async function createApp() {
     next();
   });
 
-  await registerRoutes(app);
+  const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -47,8 +47,15 @@ export async function createApp() {
     throw err;
   });
 
-  // For serverless environments like Vercel, we don't setup Vite or serve static files
-  // Vercel handles static file serving through the routing configuration
+  // Setup Vite for development or serve static files for production
+  // Skip this in serverless environments like Vercel
+  if (process.env.VERCEL !== '1') {
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
+    }
+  }
   
   return app;
 }
