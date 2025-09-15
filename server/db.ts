@@ -3,10 +3,16 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import * as schema from '@shared/schema';
 
-// Create a PostgreSQL connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+// Note: This app uses in-memory storage by default (see storage.ts)
+// Database connection is optional for future use
 
-// Create a drizzle instance with all schema tables
-export const db = drizzle(pool, { schema });
+let db: any = null;
+
+if (process.env.DATABASE_URL) {
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+  });
+  db = drizzle(pool, { schema });
+}
+
+export { db };

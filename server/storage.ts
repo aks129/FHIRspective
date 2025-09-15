@@ -65,9 +65,16 @@ export class MemStorage implements IStorage {
         timeout: 30,
         userId: user.id
       });
-      
+
       this.createFhirServer({
         url: "https://server.fire.ly",
+        authType: "none",
+        timeout: 30,
+        userId: user.id
+      });
+
+      this.createFhirServer({
+        url: "https://r4.test.pyrohealth.net",
         authType: "none",
         timeout: 30,
         userId: user.id
@@ -87,8 +94,7 @@ export class MemStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const user: User = {
       id: this.nextIds.user++,
-      ...insertUser,
-      createdAt: new Date()
+      ...insertUser
     };
     this.users.push(user);
     return user;
@@ -112,8 +118,7 @@ export class MemStorage implements IStorage {
     const server: FhirServer = {
       id: this.nextIds.fhirServer++,
       ...insertServer,
-      lastUsed: new Date(),
-      createdAt: new Date()
+      lastUsed: new Date()
     };
     this.fhirServers.push(server);
     return server;

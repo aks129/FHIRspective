@@ -26,19 +26,26 @@ export function useFhirServer() {
         '/api/fhir-servers/test-connection',
         serverConnection
       );
-      return response.json();
+      const data = await response.json();
+
+      // Check if the connection test was successful
+      if (!data.success) {
+        throw new Error(data.error || "Connection test failed");
+      }
+
+      return data;
     },
     onSuccess: (data) => {
       toast({
         title: "Connection Successful",
-        description: `Successfully connected to FHIR server`,
+        description: data.message || "Successfully connected to FHIR server",
       });
       return data;
     },
     onError: (error: Error) => {
       toast({
         title: "Connection Failed",
-        description: error.message,
+        description: error.message || "Failed to connect to FHIR server",
         variant: "destructive",
       });
       throw error;
@@ -100,16 +107,23 @@ export function useFhirServer() {
   const testAndSaveServer = async (server: ServerConnection) => {
     try {
       // First test the connection
-      await testConnectionMutation.mutateAsync(server);
-      
-      // If successful, save the server
-      const savedServer = await saveServerMutation.mutateAsync(server);
-      
-      // Update the selected server with the saved version (including ID)
-      setSelectedServer(savedServer);
-      
-      return savedServer;
+      const testResult = await testConnectionMutation.mutateAsync(server);
+
+      // Only save if test was successful
+      if (testResult && testResult.success) {
+        // If successful, save the server
+        const savedServer = await saveServerMutation.mutateAsync(server);
+
+        // Update the selected server with the saved version (including ID)
+        setSelectedServer(savedServer);
+
+        return savedServer;
+      } else {
+        console.error("Connection test failed:", testResult);
+        return null;
+      }
     } catch (error) {
+      console.error("Error testing/saving server:", error);
       // Error is already handled by the mutations
       return null;
     }

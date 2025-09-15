@@ -17,6 +17,15 @@ import { fromZodError } from "zod-validation-error";
 import { exportService } from './services/exportService';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint
+  app.get("/api/health", async (req: Request, res: Response) => {
+    res.json({
+      status: "healthy",
+      storage: "in-memory",
+      message: "System operational (using in-memory storage)"
+    });
+  });
+
   // FHIR Server API routes
   app.get("/api/fhir-servers", async (req: Request, res: Response) => {
     try {
@@ -25,6 +34,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const servers = await storage.getFhirServersByUser(userId);
       res.json(servers);
     } catch (error) {
+      console.error("Error fetching FHIR servers:", error);
       res.status(500).json({ error: "Failed to fetch FHIR servers" });
     }
   });
@@ -34,7 +44,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For demo, use user ID 1
       const userId = 1;
       const serverData = { ...req.body, userId };
-      
+
       const validatedData = insertFhirServerSchema.parse(serverData);
       const server = await storage.createFhirServer(validatedData);
       res.status(201).json(server);
@@ -51,26 +61,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/fhir-servers/test-connection", async (req: Request, res: Response) => {
     try {
       const { url, authType, username, password, token, timeout } = req.body;
-      
+
+      // Validate required fields
+      if (!url) {
+        return res.status(400).json({
+          success: false,
+          error: "URL is required"
+        });
+      }
+
       // Create a complete server connection object with the right types
       const serverConnection: FhirServer = {
         id: 0, // Temp ID for test purposes
-        url,
-        authType,
+        url: url.trim(),
+        authType: authType || 'none',
         username: username || null,
         password: password || null,
         token: token || null,
-        timeout: typeof timeout === 'number' ? timeout : parseInt(timeout) || 30,
+        timeout: typeof timeout === 'number' ? timeout : (parseInt(timeout) || 30),
         lastUsed: new Date(),
         userId: null
       };
       
+      console.log(`Testing connection to FHIR server: ${serverConnection.url}`);
       const connectionResult = await fhirService.testConnection(serverConnection);
-      
+      console.log(`Connection test result:`, connectionResult);
+
       res.json(connectionResult);
     } catch (error) {
-      res.status(500).json({ 
-        error: "Failed to connect to FHIR server", 
+      console.error("Error testing FHIR server connection:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to connect to FHIR server",
         details: error instanceof Error ? error.message : String(error)
       });
     }

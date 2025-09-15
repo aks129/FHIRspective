@@ -60,7 +60,7 @@ export default function Home() {
           assessmentConfig={assessmentConfig}
           serverConnection={serverConnection}
           onStartAssessment={startAssessment}
-          assessmentStatus={assessmentStatus}
+          assessmentStatus={assessmentStatus || undefined}
           onNext={handleNextStep}
           onPrev={handlePrevStep}
         />

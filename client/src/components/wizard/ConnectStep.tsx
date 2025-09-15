@@ -56,7 +56,7 @@ export default function ConnectStep({
       
       <div className="mt-6">
         <ConnectionHistory 
-          recentServers={recentServers}
+          recentServers={recentServers as ServerConnection[]}
           isLoading={isLoadingServers}
           onSelectServer={handleSelectServer}
         />

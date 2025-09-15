@@ -20,24 +20,38 @@ class FhirService {
    */
   async testConnection(connection: ServerConnection): Promise<ConnectionTestResult> {
     try {
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), connection.timeout * 1000);
+
       // Build request options with authentication
       const options: RequestInit = {
         method: 'GET',
         headers: this.buildHeaders(connection),
-        // Use AbortController to implement timeout
-        signal: AbortSignal.timeout(connection.timeout * 1000)
+        signal: controller.signal
       };
       
       // Normalize the URL
       const baseUrl = this.normalizeUrl(connection.url);
       
       // Try to fetch the CapabilityStatement/metadata
-      const response = await fetch(`${baseUrl}/metadata`, options);
-      
+      const metadataUrl = `${baseUrl}/metadata`;
+      console.log(`Attempting to fetch metadata from: ${metadataUrl}`);
+
+      let response: Response;
+      try {
+        response = await fetch(metadataUrl, options);
+        console.log(`Response status: ${response.status} ${response.statusText}`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!response.ok) {
+        const responseText = await response.text().catch(() => 'Unable to read response body');
+        console.error(`FHIR server error - Status: ${response.status}, Body: ${responseText}`);
         return {
           success: false,
-          error: `Server returned ${response.status}: ${response.statusText}`
+          error: `Server returned ${response.status}: ${response.statusText}. ${responseText ? 'Response: ' + responseText : ''}`
         };
       }
       
@@ -67,7 +81,15 @@ class FhirService {
         metadata,
         message: `Successfully connected to FHIR server (${fhirVersion})`
       };
-    } catch (error) {
+    } catch (error: any) {
+      // Handle timeout specifically
+      if (error.name === 'AbortError') {
+        return {
+          success: false,
+          error: `Connection timeout after ${connection.timeout} seconds`
+        };
+      }
+
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error)
@@ -81,12 +103,16 @@ class FhirService {
   async fetchResources(connection: ServerConnection, resourceType: string, count: number | 'all'): Promise<any[]> {
     try {
       console.log(`Starting fetch of ${resourceType} resources from ${connection.url}`);
-      
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), connection.timeout * 1000);
+
       // Build request options with authentication
       const options: RequestInit = {
         method: 'GET',
         headers: this.buildHeaders(connection),
-        signal: AbortSignal.timeout(connection.timeout * 1000)
+        signal: controller.signal
       };
       
       // Normalize the URL
@@ -98,10 +124,17 @@ class FhirService {
       }
       
       console.log(`Fetching from URL: ${url}`);
-      const response = await fetch(url, options);
-      
+      let response: Response;
+      try {
+        response = await fetch(url, options);
+        console.log(`Fetch response status: ${response.status} ${response.statusText}`);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!response.ok) {
-        const errorMsg = `Error fetching ${resourceType}: ${response.status} ${response.statusText}`;
+        const responseText = await response.text().catch(() => 'Unable to read response body');
+        const errorMsg = `Error fetching ${resourceType}: ${response.status} ${response.statusText}. ${responseText ? 'Response: ' + responseText : ''}`;
         console.error(errorMsg);
         throw new Error(errorMsg);
       }
@@ -118,8 +151,13 @@ class FhirService {
       
       console.log(`No resources found for ${resourceType} or invalid bundle format`);
       return [];
-    } catch (error) {
-      console.error(`Error fetching ${resourceType} resources:`, error);
+    } catch (error: any) {
+      // Handle timeout specifically
+      if (error.name === 'AbortError') {
+        console.error(`Timeout fetching ${resourceType} resources after ${connection.timeout} seconds`);
+      } else {
+        console.error(`Error fetching ${resourceType} resources:`, error);
+      }
       // Return empty array instead of throwing to prevent the entire assessment from failing
       return [];
     }
@@ -186,6 +224,7 @@ class FhirService {
     if (normalizedUrl.endsWith('/')) {
       normalizedUrl = normalizedUrl.slice(0, -1);
     }
+    console.log(`URL normalized: "${url}" -> "${normalizedUrl}"`);
     return normalizedUrl;
   }
 }
