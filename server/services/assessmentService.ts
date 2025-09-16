@@ -46,8 +46,9 @@ class AssessmentService {
       }
 
       // Get selected resources
-      const resources = assessment.resources as { [key: string]: boolean };
-      const selectedResources = Object.keys(resources).filter(key => resources[key]);
+      const selectedResources = assessment.resources as string[];
+      console.log('Assessment resources:', assessment.resources);
+      console.log('Selected resources:', selectedResources);
 
       // Sample size conversion
       const sampleSize = assessment.sampleSize === 'all' ? 'all' : parseInt(assessment.sampleSize);
@@ -104,8 +105,7 @@ class AssessmentService {
    * Initialize progress tracking for a new assessment
    */
   private initializeProgress(assessment: Assessment): void {
-    const resources = assessment.resources as { [key: string]: boolean };
-    const selectedResources = Object.keys(resources).filter(key => resources[key]);
+    const selectedResources = assessment.resources as string[];
     
     const resourceProgress: {
       [resource: string]: {
