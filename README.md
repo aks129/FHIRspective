@@ -1,7 +1,16 @@
 
-# Fhirspective: FHIR-Powered Data Quality Assessment Tool
+# FHIRspective v2: FHIR-Powered Data Quality Assessment Tool
 
-**Fhirspective** is a healthcare data quality assessment platform built on HL7 FHIR standards. It enables data aggregators, payers, providers, and health IT vendors to measure, monitor, and improve the trustworthiness of healthcare data using modern, standards-aligned, and AI-augmented approaches.
+**FHIRspective** is a healthcare data quality assessment platform built on HL7 FHIR standards. It enables data aggregators, payers, providers, and health IT vendors to measure, monitor, and improve the trustworthiness of healthcare data using modern, standards-aligned, and AI-augmented approaches.
+
+## 🎉 What's New in v2
+
+- **Modern Multi-Page UI**: Enhanced dashboard with dedicated pages for assessments, analytics, and settings
+- **Databricks Integration**: Sync assessment data to Delta Lake for advanced analytics and ML
+- **Historical Trends**: Track quality metrics over time with interactive charts
+- **Industry Benchmarks**: Compare your scores against cross-organizational standards
+- **Enhanced Navigation**: React Router-based multi-page navigation with improved UX
+- **Real-time Sync**: Push assessment results to Databricks for long-term storage and analysis
 
 ## 🚀 Why Fhirspective?
 
@@ -49,9 +58,92 @@ Most healthcare data quality tools focus on format and completeness. Fhirspectiv
 
 ---
 
-## 📦 Installation
+## 📦 Installation & Setup
 
-> Coming soon — will support Docker, CLI, and hosted options.
+### Prerequisites
+
+- Node.js 18+ and npm
+- PostgreSQL database (or use in-memory storage for development)
+- Databricks workspace (optional, for analytics features)
+
+### Quick Start
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/your-org/FHIRspective.git
+   cd FHIRspective
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+
+   The application will be available at `http://localhost:5000`
+
+5. **Build for production**
+   ```bash
+   npm run build
+   npm start
+   ```
+
+### Databricks Integration (Optional)
+
+To enable advanced analytics features:
+
+1. **Create a Databricks workspace** (AWS, Azure, or GCP)
+
+2. **Generate an access token**
+   - In Databricks: User Settings → Access Tokens
+   - Generate new token and copy it
+
+3. **Configure in FHIRspective**
+   - Navigate to Settings page
+   - Enter your Databricks workspace URL
+   - Paste your access token
+   - Optionally provide a cluster ID
+   - Test connection and save
+
+4. **Import Databricks notebooks**
+   ```bash
+   # Upload notebooks from databricks/ directory to your workspace
+   # Or use Databricks CLI
+   databricks workspace import_dir databricks/ /Users/your-email/fhirspective
+   ```
+
+5. **Run initial setup**
+   - Open `01_ingest_fhir_assessments.py` in Databricks
+   - Run the "Create Delta Lake Tables" section
+   - Tables will be created in the `fhirspective` database
+
+See [databricks/README.md](./databricks/README.md) for detailed setup instructions.
+
+### Environment Variables
+
+```env
+# Database (optional - uses in-memory storage by default)
+DATABASE_URL=postgresql://user:pass@host:5432/fhirspective
+
+# Databricks (optional)
+DATABRICKS_WORKSPACE_URL=https://your-workspace.cloud.databricks.com
+DATABRICKS_ACCESS_TOKEN=dapi...
+DATABRICKS_CLUSTER_ID=0123-456789-abc123
+
+# Application
+PORT=5000
+NODE_ENV=development
+```
 
 ---
 

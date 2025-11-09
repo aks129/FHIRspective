@@ -1,11 +1,12 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { 
-  insertFhirServerSchema, 
+import {
+  insertFhirServerSchema,
   insertAssessmentSchema,
   insertAssessmentResultSchema,
   insertAssessmentLogSchema,
+  insertDatabricksConfigSchema,
   FhirServer
 } from "@shared/schema";
 import { fhirService } from "./services/fhirService";
@@ -409,8 +410,218 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Databricks API routes
+  app.get("/api/databricks/config", async (req: Request, res: Response) => {
+    try {
+      const userId = 1; // Demo user
+      const config = await storage.getDatabricksConfig(userId);
+
+      if (!config) {
+        return res.status(404).json({ error: "Databricks configuration not found" });
+      }
+
+      // Don't expose the access token
+      const { accessToken, ...safeConfig } = config;
+      res.json({ ...safeConfig, hasToken: !!accessToken });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch Databricks configuration" });
+    }
+  });
+
+  app.post("/api/databricks/config", async (req: Request, res: Response) => {
+    try {
+      const userId = 1; // Demo user
+      const configData = { ...req.body, userId };
+
+      const validatedData = insertDatabricksConfigSchema.parse(configData);
+      const config = await storage.saveDatabricksConfig(validatedData);
+
+      // Don't expose the access token
+      const { accessToken, ...safeConfig } = config;
+      res.status(201).json({ ...safeConfig, hasToken: !!accessToken });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const validationError = fromZodError(error);
+        res.status(400).json({ error: validationError.message });
+      } else {
+        res.status(500).json({ error: "Failed to save Databricks configuration" });
+      }
+    }
+  });
+
+  app.post("/api/databricks/test-connection", async (req: Request, res: Response) => {
+    try {
+      const { workspaceUrl, accessToken, clusterId } = req.body;
+
+      if (!workspaceUrl || !accessToken) {
+        return res.status(400).json({
+          success: false,
+          message: "Workspace URL and access token are required"
+        });
+      }
+
+      // Dynamically import DatabricksService to avoid circular dependencies
+      const { DatabricksService } = await import("./services/databricksService");
+      const databricksService = new DatabricksService({
+        workspaceUrl,
+        accessToken,
+        clusterId,
+        userId: 1,
+        id: 0,
+        isActive: true,
+        lastTestedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      const result = await databricksService.testConnection();
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing Databricks connection:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to connect to Databricks",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  app.post("/api/databricks/sync/:assessmentId", async (req: Request, res: Response) => {
+    try {
+      const userId = 1; // Demo user
+      const assessmentId = parseInt(req.params.assessmentId);
+
+      const assessment = await storage.getAssessment(assessmentId);
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      const config = await storage.getDatabricksConfig(userId);
+      if (!config) {
+        return res.status(404).json({ error: "Databricks configuration not found. Please configure Databricks first." });
+      }
+
+      // Create sync job record
+      const syncJob = await storage.createDatabricksSyncJob({
+        assessmentId,
+        userId
+      });
+
+      // Start sync in background
+      (async () => {
+        try {
+          await storage.updateDatabricksSyncJobStatus(syncJob.id, "running");
+
+          const { DatabricksService } = await import("./services/databricksService");
+          const databricksService = new DatabricksService(config);
+
+          const results = await storage.getAssessmentResultsByAssessment(assessmentId);
+
+          const syncResult = await databricksService.syncAssessment(
+            assessment,
+            results,
+            (status) => {
+              storage.updateDatabricksSyncJobProgress(
+                syncJob.id,
+                status.progress,
+                status.recordsSynced
+              );
+            }
+          );
+
+          if (syncResult.success) {
+            await storage.updateDatabricksSyncJobStatus(
+              syncJob.id,
+              "completed",
+              syncResult.recordsSynced
+            );
+          } else {
+            await storage.updateDatabricksSyncJobStatus(
+              syncJob.id,
+              "failed",
+              undefined,
+              syncResult.message
+            );
+          }
+        } catch (error) {
+          await storage.updateDatabricksSyncJobStatus(
+            syncJob.id,
+            "failed",
+            undefined,
+            error instanceof Error ? error.message : "Unknown error"
+          );
+        }
+      })();
+
+      res.json({
+        message: "Sync started",
+        syncJobId: syncJob.id
+      });
+    } catch (error) {
+      console.error("Error starting Databricks sync:", error);
+      res.status(500).json({ error: "Failed to start sync" });
+    }
+  });
+
+  app.get("/api/databricks/sync-status/:syncJobId", async (req: Request, res: Response) => {
+    try {
+      const syncJobId = parseInt(req.params.syncJobId);
+      const syncJob = await storage.getDatabricksSyncJob(syncJobId);
+
+      if (!syncJob) {
+        return res.status(404).json({ error: "Sync job not found" });
+      }
+
+      res.json(syncJob);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch sync status" });
+    }
+  });
+
+  app.get("/api/analytics/trends", async (req: Request, res: Response) => {
+    try {
+      const userId = 1; // Demo user
+      const days = parseInt(req.query.days as string) || 30;
+
+      const config = await storage.getDatabricksConfig(userId);
+      if (!config) {
+        return res.status(404).json({ error: "Databricks not configured" });
+      }
+
+      const { DatabricksService } = await import("./services/databricksService");
+      const databricksService = new DatabricksService(config);
+
+      const trends = await databricksService.getQualityTrends(userId, days);
+      res.json(trends);
+    } catch (error) {
+      console.error("Error fetching trends:", error);
+      res.status(500).json({ error: "Failed to fetch quality trends" });
+    }
+  });
+
+  app.get("/api/analytics/benchmarks", async (req: Request, res: Response) => {
+    try {
+      const userId = 1; // Demo user
+      const resourceType = req.query.resourceType as string | undefined;
+
+      const config = await storage.getDatabricksConfig(userId);
+      if (!config) {
+        return res.status(404).json({ error: "Databricks not configured" });
+      }
+
+      const { DatabricksService } = await import("./services/databricksService");
+      const databricksService = new DatabricksService(config);
+
+      const benchmarks = await databricksService.getBenchmarks(resourceType);
+      res.json(benchmarks);
+    } catch (error) {
+      console.error("Error fetching benchmarks:", error);
+      res.status(500).json({ error: "Failed to fetch benchmarks" });
+    }
+  });
+
   // Create HTTP server
   const httpServer = createServer(app);
-  
+
   return httpServer;
 }

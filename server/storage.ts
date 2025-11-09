@@ -3,7 +3,9 @@ import {
   type FhirServer, type InsertFhirServer,
   type Assessment, type InsertAssessment,
   type AssessmentResult, type InsertAssessmentResult,
-  type AssessmentLog, type InsertAssessmentLog
+  type AssessmentLog, type InsertAssessmentLog,
+  type DatabricksConfig, type InsertDatabricksConfig,
+  type DatabricksSyncJob, type InsertDatabricksSyncJob
 } from "@shared/schema";
 
 // Storage interface defining all operations
@@ -34,6 +36,16 @@ export interface IStorage {
   // Assessment Log operations
   getAssessmentLogsByAssessment(assessmentId: number): Promise<AssessmentLog[]>;
   createAssessmentLog(log: InsertAssessmentLog): Promise<AssessmentLog>;
+
+  // Databricks Config operations
+  getDatabricksConfig(userId: number): Promise<DatabricksConfig | undefined>;
+  saveDatabricksConfig(config: InsertDatabricksConfig): Promise<DatabricksConfig>;
+
+  // Databricks Sync Job operations
+  getDatabricksSyncJob(id: number): Promise<DatabricksSyncJob | undefined>;
+  createDatabricksSyncJob(job: InsertDatabricksSyncJob): Promise<DatabricksSyncJob>;
+  updateDatabricksSyncJobStatus(id: number, status: string, recordsSynced?: number, errorMessage?: string): Promise<DatabricksSyncJob | undefined>;
+  updateDatabricksSyncJobProgress(id: number, progress: number, recordsSynced?: number): Promise<DatabricksSyncJob | undefined>;
 }
 
 // In-memory storage implementation
@@ -43,13 +55,17 @@ export class MemStorage implements IStorage {
   private assessments: Assessment[] = [];
   private assessmentResults: AssessmentResult[] = [];
   private assessmentLogs: AssessmentLog[] = [];
-  
+  private databricksConfigs: DatabricksConfig[] = [];
+  private databricksSyncJobs: DatabricksSyncJob[] = [];
+
   private nextIds = {
     user: 1,
     fhirServer: 1,
     assessment: 1,
     assessmentResult: 1,
-    assessmentLog: 1
+    assessmentLog: 1,
+    databricksConfig: 1,
+    databricksSyncJob: 1
   };
   
   constructor() {
@@ -212,6 +228,92 @@ export class MemStorage implements IStorage {
     };
     this.assessmentLogs.push(log);
     return log;
+  }
+
+  // Databricks Config operations
+  async getDatabricksConfig(userId: number): Promise<DatabricksConfig | undefined> {
+    return this.databricksConfigs
+      .filter(config => config.userId === userId && config.isActive)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  }
+
+  async saveDatabricksConfig(insertConfig: InsertDatabricksConfig): Promise<DatabricksConfig> {
+    // Mark all existing configs for this user as inactive
+    this.databricksConfigs
+      .filter(config => config.userId === insertConfig.userId)
+      .forEach(config => config.isActive = false);
+
+    const config: DatabricksConfig = {
+      id: this.nextIds.databricksConfig++,
+      ...insertConfig,
+      isActive: true,
+      lastTestedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.databricksConfigs.push(config);
+    return config;
+  }
+
+  // Databricks Sync Job operations
+  async getDatabricksSyncJob(id: number): Promise<DatabricksSyncJob | undefined> {
+    return this.databricksSyncJobs.find(job => job.id === id);
+  }
+
+  async createDatabricksSyncJob(insertJob: InsertDatabricksSyncJob): Promise<DatabricksSyncJob> {
+    const job: DatabricksSyncJob = {
+      id: this.nextIds.databricksSyncJob++,
+      ...insertJob,
+      status: "pending",
+      progress: 0,
+      recordsSynced: null,
+      errorMessage: null,
+      startedAt: null,
+      completedAt: null,
+      createdAt: new Date()
+    };
+    this.databricksSyncJobs.push(job);
+    return job;
+  }
+
+  async updateDatabricksSyncJobStatus(
+    id: number,
+    status: string,
+    recordsSynced?: number,
+    errorMessage?: string
+  ): Promise<DatabricksSyncJob | undefined> {
+    const job = this.databricksSyncJobs.find(j => j.id === id);
+    if (job) {
+      job.status = status;
+      if (recordsSynced !== undefined) {
+        job.recordsSynced = recordsSynced;
+      }
+      if (errorMessage !== undefined) {
+        job.errorMessage = errorMessage;
+      }
+      if (status === "running" && !job.startedAt) {
+        job.startedAt = new Date();
+      }
+      if (status === "completed" || status === "failed") {
+        job.completedAt = new Date();
+      }
+    }
+    return job;
+  }
+
+  async updateDatabricksSyncJobProgress(
+    id: number,
+    progress: number,
+    recordsSynced?: number
+  ): Promise<DatabricksSyncJob | undefined> {
+    const job = this.databricksSyncJobs.find(j => j.id === id);
+    if (job) {
+      job.progress = progress;
+      if (recordsSynced !== undefined) {
+        job.recordsSynced = recordsSynced;
+      }
+    }
+    return job;
   }
 }
 
