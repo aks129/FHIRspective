@@ -69,33 +69,52 @@ export class MemStorage implements IStorage {
   };
   
   constructor() {
-    // Add initial demo user
-    this.createUser({
+    // Add initial demo user synchronously
+    const user: User = {
+      id: this.nextIds.user++,
       username: "demo",
       password: "password"
-    }).then(user => {
-      // Add sample FHIR servers
-      this.createFhirServer({
+    };
+    this.users.push(user);
+
+    // Add sample FHIR servers synchronously
+    const servers: FhirServer[] = [
+      {
+        id: this.nextIds.fhirServer++,
         url: "https://hapi.fhir.org/baseR4",
         authType: "none",
         timeout: 30,
-        userId: user.id
-      });
-
-      this.createFhirServer({
+        userId: user.id,
+        username: null,
+        password: null,
+        token: null,
+        lastUsed: new Date()
+      },
+      {
+        id: this.nextIds.fhirServer++,
         url: "https://server.fire.ly",
         authType: "none",
         timeout: 30,
-        userId: user.id
-      });
-
-      this.createFhirServer({
+        userId: user.id,
+        username: null,
+        password: null,
+        token: null,
+        lastUsed: new Date()
+      },
+      {
+        id: this.nextIds.fhirServer++,
         url: "https://r4.test.pyrohealth.net",
         authType: "none",
         timeout: 30,
-        userId: user.id
-      });
-    });
+        userId: user.id,
+        username: null,
+        password: null,
+        token: null,
+        lastUsed: new Date()
+      }
+    ];
+
+    this.fhirServers.push(...servers);
   }
   
   // User operations
