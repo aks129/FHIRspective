@@ -620,6 +620,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Resource Cache API routes
+  app.get("/api/assessments/:id/cached-resources", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const resourceType = req.query.resourceType as string | undefined;
+
+      const assessment = await storage.getAssessment(id);
+
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      // Get cached resources
+      const cachedResources = assessmentService.getCachedResources(id, resourceType);
+
+      res.json({
+        assessmentId: id,
+        resourceType: resourceType || 'all',
+        count: cachedResources.length,
+        resources: cachedResources
+      });
+    } catch (error) {
+      console.error("Error fetching cached resources:", error);
+      res.status(500).json({ error: "Failed to fetch cached resources" });
+    }
+  });
+
+  app.get("/api/assessments/:id/cache-stats", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const assessment = await storage.getAssessment(id);
+
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      // Get cache statistics
+      const stats = assessmentService.getCacheStats(id);
+
+      res.json({
+        assessmentId: id,
+        ...stats
+      });
+    } catch (error) {
+      console.error("Error fetching cache stats:", error);
+      res.status(500).json({ error: "Failed to fetch cache statistics" });
+    }
+  });
+
   // Create HTTP server
   const httpServer = createServer(app);
 
