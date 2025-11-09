@@ -519,10 +519,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         assessmentStorage.set(assessmentId, assessment);
       }
 
+      // Get the final assessment status
+      const finalAssessment = assessmentStorage.get(assessmentId);
+      const finalResults = resultStorage.get(assessmentId);
+
       res.status(200).json({
-        message: "Assessment started",
+        message: "Assessment completed",
         assessmentId: assessmentId,
-        status: 'running'
+        status: finalAssessment?.status || 'completed',
+        results: finalResults
       });
     } else {
       res.setHeader('Allow', ['POST', 'OPTIONS']);
