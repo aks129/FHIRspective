@@ -134,3 +134,48 @@ export type InsertAssessmentResult = z.infer<typeof insertAssessmentResultSchema
 
 export type AssessmentLog = typeof assessmentLogs.$inferSelect;
 export type InsertAssessmentLog = z.infer<typeof insertAssessmentLogSchema>;
+
+// Databricks Configuration table
+export const databricksConfigs = pgTable("databricks_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  workspaceUrl: text("workspace_url").notNull(),
+  accessToken: text("access_token").notNull(), // Should be encrypted in production
+  clusterId: text("cluster_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastTestedAt: timestamp("last_tested_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertDatabricksConfigSchema = createInsertSchema(databricksConfigs).pick({
+  userId: true,
+  workspaceUrl: true,
+  accessToken: true,
+  clusterId: true,
+});
+
+// Databricks Sync Jobs table
+export const databricksSyncJobs = pgTable("databricks_sync_jobs", {
+  id: serial("id").primaryKey(),
+  assessmentId: integer("assessment_id").references(() => assessments.id).notNull(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  status: text("status").notNull().default("pending"), // pending, running, completed, failed
+  progress: integer("progress").notNull().default(0),
+  recordsSynced: integer("records_synced"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertDatabricksSyncJobSchema = createInsertSchema(databricksSyncJobs).pick({
+  assessmentId: true,
+  userId: true,
+});
+
+export type DatabricksConfig = typeof databricksConfigs.$inferSelect;
+export type InsertDatabricksConfig = z.infer<typeof insertDatabricksConfigSchema>;
+
+export type DatabricksSyncJob = typeof databricksSyncJobs.$inferSelect;
+export type InsertDatabricksSyncJob = z.infer<typeof insertDatabricksSyncJobSchema>;

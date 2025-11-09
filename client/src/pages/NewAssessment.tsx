@@ -6,7 +6,7 @@ import ExecuteStep from "@/components/wizard/ExecuteStep";
 import ResultsStep from "@/components/wizard/ResultsStep";
 import { useAssessment } from "@/hooks/useAssessment";
 
-export default function Home() {
+export default function NewAssessment() {
   const [step, setStep] = useState<number>(1);
   const { 
     serverConnection, 
