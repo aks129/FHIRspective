@@ -1,7 +1,13 @@
 {
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1" }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api" }
   ],
   "buildCommand": "npm run build",
-  "outputDirectory": "dist/public"
+  "outputDirectory": "dist/public",
+  "functions": {
+    "api/*.ts": {
+      "memory": 1024,
+      "maxDuration": 60
+    }
+  }
 }
