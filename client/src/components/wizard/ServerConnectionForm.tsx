@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { ServerConnection, AuthType } from "@/types";
-import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent, CardFooter, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Sparkles, ExternalLink } from "lucide-react";
 
 interface ServerConnectionFormProps {
   serverConnection: ServerConnection;
@@ -21,6 +23,7 @@ export default function ServerConnectionForm({
   isTestingConnection
 }: ServerConnectionFormProps) {
   const [showAuth, setShowAuth] = useState(false);
+  const [showMedplumHelp, setShowMedplumHelp] = useState(false);
 
   const handleInputChange = (field: keyof ServerConnection, value: string | number) => {
     onUpdateServerConnection({
@@ -36,12 +39,67 @@ export default function ServerConnectionForm({
     });
   };
 
+  const setupMedplumDemo = () => {
+    onUpdateServerConnection({
+      ...serverConnection,
+      url: "https://api.medplum.com/fhir/R4",
+      authType: "token",
+      timeout: 30,
+      token: "" // User will need to provide their own token
+    });
+    setShowAuth(true);
+    setShowMedplumHelp(true);
+  };
+
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle className="text-xl font-semibold text-gray-800">FHIR Server Connection</CardTitle>
+        <div className="flex items-start justify-between">
+          <div>
+            <CardTitle className="text-xl font-semibold text-gray-800">FHIR Server Connection</CardTitle>
+            <CardDescription className="mt-1.5">
+              Connect to your FHIR server or use our Medplum demo setup
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={setupMedplumDemo}
+            className="flex items-center gap-2"
+          >
+            <Sparkles className="h-4 w-4" />
+            Medplum Demo
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {showMedplumHelp && (
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertDescription className="text-sm">
+              <div className="space-y-2">
+                <p className="font-medium text-blue-900">Medplum Setup Instructions:</p>
+                <ol className="list-decimal list-inside space-y-1 text-blue-800">
+                  <li>Log in to your Medplum account at{" "}
+                    <a
+                      href="https://app.medplum.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline inline-flex items-center gap-1"
+                    >
+                      app.medplum.com
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </li>
+                  <li>Navigate to Project Settings → Clients</li>
+                  <li>Create a new Client or use an existing one</li>
+                  <li>Copy the Access Token and paste it in the Bearer Token field below</li>
+                </ol>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="space-y-1">
           <Label htmlFor="server-url">FHIR Server URL</Label>
           <Input

@@ -98,6 +98,28 @@ Most healthcare data quality tools focus on format and completeness. Fhirspectiv
    npm start
    ```
 
+### Medplum Demo Server Setup
+
+Want to test FHIRspective quickly with real FHIR data? Use our **Medplum Demo** integration:
+
+1. **Create a free Medplum account** at [app.medplum.com](https://app.medplum.com)
+
+2. **Upload test data** to your Medplum project (supports Synthea data, US Core examples, or your own FHIR resources)
+
+3. **Get your access token**:
+   - Log in to Medplum
+   - Navigate to Project Settings → Clients
+   - Copy your Access Token
+
+4. **Quick Setup in FHIRspective**:
+   - Start the app and go to the Connect step
+   - Click the **"Medplum Demo"** button
+   - Paste your access token
+   - Select sample size (100, 500, 1000, or all records)
+   - Start your assessment!
+
+For detailed instructions, see [MEDPLUM_SETUP.md](./MEDPLUM_SETUP.md).
+
 ### Databricks Integration (Optional)
 
 To enable advanced analytics features:
