@@ -6,6 +6,7 @@ import { Assessment, FhirServer } from "@shared/schema";
 import { storage } from "../storage";
 import { fhirService } from "./fhirService";
 import { validatorService, ValidationResult } from "./validatorService";
+import { resourceCacheService } from "./resourceCacheService";
 
 // Track assessment progress
 interface AssessmentProgressMap {
@@ -102,6 +103,20 @@ class AssessmentService {
   }
 
   /**
+   * Get cached resources for an assessment
+   */
+  getCachedResources(assessmentId: number, resourceType?: string) {
+    return resourceCacheService.getResources(assessmentId, resourceType);
+  }
+
+  /**
+   * Get cache statistics for an assessment
+   */
+  getCacheStats(assessmentId: number) {
+    return resourceCacheService.getCacheStats(assessmentId);
+  }
+
+  /**
    * Initialize progress tracking for a new assessment
    */
   private initializeProgress(assessment: Assessment): void {
@@ -155,6 +170,11 @@ class AssessmentService {
       // Fetch resources from FHIR server
       const resources = await fhirService.fetchResources(server, resourceType, sampleSize);
       console.log(`Fetched ${resources.length} ${resourceType} resources`);
+
+      // Cache the fetched resources for later access
+      if (resources.length > 0) {
+        resourceCacheService.storeResources(assessment.id, resourceType, resources);
+      }
       
       // Handle case with no resources
       if (resources.length === 0) {
