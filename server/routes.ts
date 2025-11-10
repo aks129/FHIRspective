@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import {
@@ -16,6 +16,11 @@ import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 
 import { exportService } from './services/exportService';
+import { createLogger } from "./utils/logger";
+import { AppError, createErrorResponse, isOperationalError } from "./utils/errors";
+
+// Create logger
+const logger = createLogger('Routes');
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
@@ -668,6 +673,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error fetching cache stats:", error);
       res.status(500).json({ error: "Failed to fetch cache statistics" });
     }
+  });
+
+  // Global error handler (must be last)
+  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    // Log the error
+    logger.error('Unhandled error in request', err, {
+      method: req.method,
+      path: req.path,
+      query: req.query,
+      body: req.body
+    });
+
+    // Check if error is operational
+    if (err instanceof AppError) {
+      const errorResponse = createErrorResponse(err);
+      return res.status(err.statusCode).json(errorResponse);
+    }
+
+    // Handle Zod validation errors
+    if (err instanceof ZodError) {
+      const validationError = fromZodError(err);
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        code: 'VALIDATION_ERROR',
+        details: validationError.details,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Generic error response for unexpected errors
+    const errorResponse = createErrorResponse(err);
+    const statusCode = (err as any).statusCode || 500;
+
+    // In production, don't expose internal error details
+    if (process.env.NODE_ENV === 'production' && !isOperationalError(err)) {
+      return res.status(500).json({
+        success: false,
+        error: 'An unexpected error occurred',
+        code: 'INTERNAL_ERROR',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.status(statusCode).json(errorResponse);
   });
 
   // Create HTTP server

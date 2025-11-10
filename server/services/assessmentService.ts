@@ -7,6 +7,11 @@ import { storage } from "../storage";
 import { fhirService } from "./fhirService";
 import { validatorService, ValidationResult } from "./validatorService";
 import { resourceCacheService } from "./resourceCacheService";
+import { createLogger } from "../utils/logger";
+import { AssessmentError, FhirError, ErrorCode } from "../utils/errors";
+
+// Create logger for this service
+const logger = createLogger('AssessmentService');
 
 // Track assessment progress
 interface AssessmentProgressMap {
@@ -166,29 +171,70 @@ class AssessmentService {
         level: "info"
       });
 
-      console.log(`Fetching ${resourceType} resources from server ${server.url}`);
-      // Fetch resources from FHIR server
-      const resources = await fhirService.fetchResources(server, resourceType, sampleSize);
-      console.log(`Fetched ${resources.length} ${resourceType} resources`);
+      logger.info(`Fetching ${resourceType} resources`, {
+        assessmentId: assessment.id,
+        serverUrl: server.url,
+        sampleSize
+      });
 
-      // Cache the fetched resources for later access
-      if (resources.length > 0) {
-        resourceCacheService.storeResources(assessment.id, resourceType, resources);
-      }
-      
-      // Handle case with no resources
-      if (resources.length === 0) {
-        console.log(`No ${resourceType} resources found or error occurred`);
-        await storage.createAssessmentLog({
+      let resources: any[];
+      try {
+        // Fetch resources from FHIR server
+        resources = await fhirService.fetchResources(server, resourceType, sampleSize);
+        logger.info(`Successfully fetched ${resources.length} ${resourceType} resources`, {
           assessmentId: assessment.id,
-          message: `No ${resourceType} resources found or error fetching resources`,
-          level: "warning"
+          resourceType,
+          count: resources.length
         });
-        
-        // Mark this resource type as complete with 0 resources
-        this.assessmentProgress[assessment.id].resourceProgress[resourceType].total = 0;
-        this.updateResourceStatus(assessment.id, resourceType, 'complete');
-        return;
+
+        // Cache the fetched resources for later access
+        if (resources.length > 0) {
+          resourceCacheService.storeResources(assessment.id, resourceType, resources);
+        }
+
+        // Handle case with no resources
+        if (resources.length === 0) {
+          logger.warn(`No ${resourceType} resources found`, {
+            assessmentId: assessment.id,
+            resourceType
+          });
+
+          await storage.createAssessmentLog({
+            assessmentId: assessment.id,
+            message: `No ${resourceType} resources found on the FHIR server`,
+            level: "warning"
+          });
+
+          // Mark this resource type as complete with 0 resources
+          this.assessmentProgress[assessment.id].resourceProgress[resourceType].total = 0;
+          this.updateResourceStatus(assessment.id, resourceType, 'complete');
+          return;
+        }
+      } catch (error) {
+        // Handle FHIR errors specifically
+        if (error instanceof FhirError) {
+          logger.error(`FHIR error fetching ${resourceType}`, error, {
+            assessmentId: assessment.id,
+            resourceType,
+            errorCode: error.code
+          });
+
+          await storage.createAssessmentLog({
+            assessmentId: assessment.id,
+            message: `Failed to fetch ${resourceType}: ${error.message}`,
+            level: "error"
+          });
+
+          // Mark this resource type as complete with error
+          this.assessmentProgress[assessment.id].resourceProgress[resourceType].total = 0;
+          this.updateResourceStatus(assessment.id, resourceType, 'complete');
+
+          // Don't fail the entire assessment, just skip this resource type
+          return;
+        }
+
+        // Re-throw unexpected errors
+        throw error;
       }
       
       // Update total count in progress tracking
@@ -305,15 +351,19 @@ class AssessmentService {
       // Update overall progress
       this.updateOverallProgress(assessment.id);
     } catch (error) {
-      console.error(`Error processing ${resourceType}:`, error);
-      
-      // Log error
+      logger.error(`Fatal error processing ${resourceType}`, error instanceof Error ? error : undefined, {
+        assessmentId: assessment.id,
+        resourceType,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+
+      // Log error to assessment logs
       await storage.createAssessmentLog({
         assessmentId: assessment.id,
-        message: `Error processing ${resourceType}: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Fatal error processing ${resourceType}: ${error instanceof Error ? error.message : String(error)}`,
         level: "error"
       });
-      
+
       // Mark this resource as complete to allow other resources to continue
       this.updateResourceStatus(assessment.id, resourceType, 'complete');
       this.updateOverallProgress(assessment.id);
