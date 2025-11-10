@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage } from "./storage.js";
 import {
   insertFhirServerSchema,
   insertAssessmentSchema,
@@ -9,15 +9,15 @@ import {
   insertDatabricksConfigSchema,
   FhirServer
 } from "@shared/schema";
-import { fhirService } from "./services/fhirService";
-import { validatorService } from "./services/validatorService";
-import { assessmentService } from "./services/assessmentService";
+import { fhirService } from "./services/fhirService.js";
+import { validatorService } from "./services/validatorService.js";
+import { assessmentService } from "./services/assessmentService.js";
 import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 
-import { exportService } from './services/exportService';
-import { createLogger } from "./utils/logger";
-import { AppError, createErrorResponse, isOperationalError } from "./utils/errors";
+import { exportService } from './services/exportService.js';
+import { createLogger } from "./utils/logger.js";
+import { AppError, createErrorResponse, isOperationalError } from "./utils/errors.js";
 
 // Create logger
 const logger = createLogger('Routes');

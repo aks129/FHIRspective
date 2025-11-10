@@ -7,7 +7,7 @@ import path from 'path';
 import PDFDocument from 'pdfkit';
 import { stringify } from 'csv-stringify/sync';
 import { FhirServer, Assessment, AssessmentResult } from '@shared/schema';
-import { ValidationResult } from './validatorService';
+import { ValidationResult } from './validatorService.js';
 
 export interface ExportOptions {
   format: 'pdf' | 'csv';

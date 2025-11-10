@@ -2,7 +2,7 @@
  * Service for validating FHIR resources against standards
  */
 
-import { fhirService } from "./fhirService";
+import { fhirService } from "./fhirService.js";
 import { FhirServer } from "@shared/schema";
 
 // Using FhirServer type as ServerConnection

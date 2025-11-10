@@ -3,12 +3,12 @@
  */
 
 import { Assessment, FhirServer } from "@shared/schema";
-import { storage } from "../storage";
-import { fhirService } from "./fhirService";
-import { validatorService, ValidationResult } from "./validatorService";
-import { resourceCacheService } from "./resourceCacheService";
-import { createLogger } from "../utils/logger";
-import { AssessmentError, FhirError, ErrorCode } from "../utils/errors";
+import { storage } from "../storage.js";
+import { fhirService } from "./fhirService.js";
+import { validatorService, ValidationResult } from "./validatorService.js";
+import { resourceCacheService } from "./resourceCacheService.js";
+import { createLogger } from "../utils/logger.js";
+import { AssessmentError, FhirError, ErrorCode } from "../utils/errors.js";
 
 // Create logger for this service
 const logger = createLogger('AssessmentService');
