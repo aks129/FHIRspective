@@ -4,14 +4,14 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "tsx server/index.ts",
-    "build": "npm run build:client && npm run build:server && npm run build:api",
+    "dev": "npm run dev:api & npm run dev:client",
+    "dev:api": "tsx dev-server.ts",
+    "dev:client": "vite",
+    "build": "npm run build:client",
     "build:client": "vite build",
-    "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "build:api": "node build-api-function.mjs",
-    "start": "NODE_ENV=production node dist/index.js",
+    "preview": "vite preview",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "test": "echo \"No tests configured\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

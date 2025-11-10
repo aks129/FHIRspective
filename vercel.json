@@ -1,13 +1,10 @@
 {
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" }
-  ],
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run build:client",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/handler.ts": {
+    "api/**/*.ts": {
       "memory": 1024,
-      "maxDuration": 60
+      "maxDuration": 30
     }
   }
 }
