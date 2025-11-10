@@ -1,9 +1,25 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
 export async function createApp() {
   const app = express();
+
+  // Configure CORS
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['*'];
+  const corsOptions = {
+    origin: allowedOrigins[0] === '*' ? true : allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 600 // 10 minutes
+  };
+
+  app.use(cors(corsOptions));
+  console.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`);
+
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
 
