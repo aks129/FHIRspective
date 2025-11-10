@@ -1,5 +1,5 @@
-import { createApp } from "./app";
-import { log } from "./vite";
+import { createApp } from "./app.js";
+import { log } from "./vite.js";
 import { createServer } from "http";
 
 (async () => {

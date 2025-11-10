@@ -3,8 +3,8 @@
  */
 
 import { FhirServer } from "@shared/schema";
-import { createLogger } from "../utils/logger";
-import { FhirError, ErrorCode } from "../utils/errors";
+import { createLogger } from "../utils/logger.js";
+import { FhirError, ErrorCode } from "../utils/errors.js";
 
 // Using FhirServer type as ServerConnection
 type ServerConnection = FhirServer;
