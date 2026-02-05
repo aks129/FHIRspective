@@ -43,9 +43,11 @@ export default function ServerConnectionForm({
     onUpdateServerConnection({
       ...serverConnection,
       url: "https://api.medplum.com/fhir/R4",
-      authType: "token",
+      authType: "oauth2",
       timeout: 30,
-      token: "" // User will need to provide their own token
+      tokenUrl: "https://api.medplum.com/oauth2/token",
+      clientId: "",
+      clientSecret: ""
     });
     setShowAuth(true);
     setShowMedplumHelp(true);
@@ -78,7 +80,7 @@ export default function ServerConnectionForm({
           <Alert className="bg-blue-50 border-blue-200">
             <AlertDescription className="text-sm">
               <div className="space-y-2">
-                <p className="font-medium text-blue-900">Medplum Setup Instructions:</p>
+                <p className="font-medium text-blue-900">Medplum OAuth2 Setup Instructions:</p>
                 <ol className="list-decimal list-inside space-y-1 text-blue-800">
                   <li>Log in to your Medplum account at{" "}
                     <a
@@ -92,9 +94,13 @@ export default function ServerConnectionForm({
                     </a>
                   </li>
                   <li>Navigate to Project Settings → Clients</li>
-                  <li>Create a new Client or use an existing one</li>
-                  <li>Copy the Access Token and paste it in the Bearer Token field below</li>
+                  <li>Create a new Client Application (type: Client Credentials)</li>
+                  <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong></li>
+                  <li>Paste them in the fields below (Token URL is pre-filled)</li>
                 </ol>
+                <p className="text-xs text-blue-700 mt-2">
+                  Using OAuth2 client credentials provides automatic token refresh and is more secure than static tokens.
+                </p>
               </div>
             </AlertDescription>
           </Alert>
@@ -157,7 +163,7 @@ export default function ServerConnectionForm({
 
           {showAuth && (
             <div className="pl-6 space-y-4 border-l-2 border-gray-100">
-              {(serverConnection.authType === "basic" || serverConnection.authType === "oauth2") && (
+              {serverConnection.authType === "basic" && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <Label htmlFor="username">Username</Label>
@@ -180,7 +186,7 @@ export default function ServerConnectionForm({
                 </div>
               )}
 
-              {(serverConnection.authType === "token" || serverConnection.authType === "oauth2") && (
+              {serverConnection.authType === "token" && (
                 <div className="space-y-1">
                   <Label htmlFor="token">Bearer Token</Label>
                   <Input
@@ -188,7 +194,50 @@ export default function ServerConnectionForm({
                     type="text"
                     value={serverConnection.token || ""}
                     onChange={(e) => handleInputChange("token", e.target.value)}
+                    placeholder="Enter your static bearer token"
                   />
+                </div>
+              )}
+
+              {serverConnection.authType === "oauth2" && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="clientId">Client ID</Label>
+                      <Input
+                        id="clientId"
+                        type="text"
+                        value={serverConnection.clientId || ""}
+                        onChange={(e) => handleInputChange("clientId", e.target.value)}
+                        placeholder="e.g., 0a0fe17a-6013-4c65-a2ab-e8eecf328bbb"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="clientSecret">Client Secret</Label>
+                      <Input
+                        id="clientSecret"
+                        type="password"
+                        value={serverConnection.clientSecret || ""}
+                        onChange={(e) => handleInputChange("clientSecret", e.target.value)}
+                        placeholder="Enter your client secret"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="tokenUrl">Token URL</Label>
+                    <Input
+                      id="tokenUrl"
+                      type="url"
+                      value={serverConnection.tokenUrl || ""}
+                      onChange={(e) => handleInputChange("tokenUrl", e.target.value)}
+                      placeholder="https://api.example.com/oauth2/token"
+                    />
+                    <p className="text-xs text-gray-500">The OAuth2 token endpoint for client credentials grant</p>
+                  </div>
+                  <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                    <strong>Tip:</strong> If you have a static bearer token instead of client credentials,
+                    switch to "Bearer Token" authentication type.
+                  </div>
                 </div>
               )}
             </div>

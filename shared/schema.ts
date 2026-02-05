@@ -22,6 +22,13 @@ export const fhirServers = pgTable("fhir_servers", {
   username: text("username"),
   password: text("password"),
   token: text("token"),
+  // OAuth2 Client Credentials fields
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  tokenUrl: text("token_url"),
+  // Cached token management
+  accessToken: text("access_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
   timeout: integer("timeout").notNull().default(30),
   lastUsed: timestamp("last_used").notNull().defaultNow(),
   userId: integer("user_id").references(() => users.id),
@@ -33,6 +40,9 @@ export const insertFhirServerSchema = createInsertSchema(fhirServers).pick({
   username: true,
   password: true,
   token: true,
+  clientId: true,
+  clientSecret: true,
+  tokenUrl: true,
   timeout: true,
   userId: true,
 });

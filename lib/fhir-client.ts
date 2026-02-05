@@ -1,15 +1,28 @@
 /**
  * Simple FHIR Client - handles communication with FHIR servers
+ * Supports OAuth2 client credentials flow
  */
 
 export interface FHIRServerConfig {
   url: string;
-  authType?: 'none' | 'basic' | 'bearer';
+  authType?: 'none' | 'basic' | 'bearer' | 'oauth2';
   username?: string;
   password?: string;
   token?: string;
+  // OAuth2 client credentials
+  clientId?: string;
+  clientSecret?: string;
+  tokenUrl?: string;
   timeout?: number;
 }
+
+// Token cache for OAuth2
+interface TokenCache {
+  accessToken: string;
+  expiresAt: Date;
+}
+
+const tokenCache: Map<string, TokenCache> = new Map();
 
 export interface FHIRResource {
   resourceType: string;
@@ -37,7 +50,7 @@ export async function testFHIRConnection(config: FHIRServerConfig): Promise<{
 }> {
   try {
     const url = normalizeUrl(config.url);
-    const headers = buildHeaders(config);
+    const headers = await buildHeaders(config);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), (config.timeout || 30) * 1000);
@@ -102,7 +115,7 @@ export async function fetchFHIRResources(
 ): Promise<FHIRResource[]> {
   try {
     const url = normalizeUrl(config.url);
-    const headers = buildHeaders(config);
+    const headers = await buildHeaders(config);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), (config.timeout || 30) * 1000);
@@ -139,9 +152,54 @@ export async function fetchFHIRResources(
 }
 
 /**
+ * Acquire OAuth2 access token using client credentials grant
+ */
+async function acquireOAuth2Token(config: FHIRServerConfig): Promise<string> {
+  if (!config.clientId || !config.clientSecret || !config.tokenUrl) {
+    throw new Error('OAuth2 requires clientId, clientSecret, and tokenUrl');
+  }
+
+  // Check cache first
+  const cacheKey = `${config.clientId}:${config.tokenUrl}`;
+  const cached = tokenCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > new Date()) {
+    return cached.accessToken;
+  }
+
+  // Acquire new token
+  const response = await fetch(config.tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+    }).toString(),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`OAuth2 authentication failed: ${response.status} - ${errorText.substring(0, 100)}`);
+  }
+
+  const tokenData = await response.json();
+  const accessToken = tokenData.access_token;
+  const expiresIn = tokenData.expires_in || 3600;
+
+  // Cache the token with 60-second buffer
+  const expiresAt = new Date(Date.now() + (expiresIn - 60) * 1000);
+  tokenCache.set(cacheKey, { accessToken, expiresAt });
+
+  return accessToken;
+}
+
+/**
  * Build HTTP headers with authentication
  */
-function buildHeaders(config: FHIRServerConfig): HeadersInit {
+async function buildHeaders(config: FHIRServerConfig): Promise<HeadersInit> {
   const headers: HeadersInit = {
     'Accept': 'application/fhir+json',
     'Content-Type': 'application/fhir+json'
@@ -152,6 +210,15 @@ function buildHeaders(config: FHIRServerConfig): HeadersInit {
     headers['Authorization'] = `Basic ${credentials}`;
   } else if (config.authType === 'bearer' && config.token) {
     headers['Authorization'] = `Bearer ${config.token}`;
+  } else if (config.authType === 'oauth2') {
+    if (config.clientId && config.clientSecret && config.tokenUrl) {
+      // OAuth2 client credentials flow
+      const accessToken = await acquireOAuth2Token(config);
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    } else if (config.token) {
+      // Fallback to static token
+      headers['Authorization'] = `Bearer ${config.token}`;
+    }
   }
 
   return headers;

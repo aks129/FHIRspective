@@ -8,6 +8,10 @@ export interface ServerConnection {
   username?: string;
   password?: string;
   token?: string;
+  // OAuth2 Client Credentials fields
+  clientId?: string;
+  clientSecret?: string;
+  tokenUrl?: string;
   timeout: number;
   lastUsed?: Date;
 }
