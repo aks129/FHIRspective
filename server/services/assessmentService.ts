@@ -7,6 +7,7 @@ import { storage } from "../storage.js";
 import { fhirService } from "./fhirService.js";
 import { validatorService, ValidationResult } from "./validatorService.js";
 import { resourceCacheService } from "./resourceCacheService.js";
+import { usabilityService, UsabilityReport, UsabilityScore, UsabilityUseCase } from "./usabilityService.js";
 import { createLogger } from "../utils/logger.js";
 import { AssessmentError, FhirError, ErrorCode } from "../utils/errors.js";
 
@@ -27,8 +28,16 @@ interface AssessmentProgressMap {
   };
 }
 
+// Track usability reports per assessment
+interface UsabilityReportMap {
+  [assessmentId: number]: {
+    [resourceType: string]: UsabilityReport;
+  };
+}
+
 class AssessmentService {
   private assessmentProgress: AssessmentProgressMap = {};
+  private usabilityReports: UsabilityReportMap = {};
 
   /**
    * Start an assessment process
@@ -119,6 +128,81 @@ class AssessmentService {
    */
   getCacheStats(assessmentId: number) {
     return resourceCacheService.getCacheStats(assessmentId);
+  }
+
+  /**
+   * Get usability reports for an assessment
+   */
+  getUsabilityReports(assessmentId: number, resourceType?: string) {
+    if (!this.usabilityReports[assessmentId]) {
+      return resourceType ? null : {};
+    }
+
+    if (resourceType) {
+      return this.usabilityReports[assessmentId][resourceType] || null;
+    }
+
+    return this.usabilityReports[assessmentId];
+  }
+
+  /**
+   * Get aggregated usability report across all resource types
+   */
+  getAggregatedUsabilityReport(assessmentId: number): {
+    assessmentId: number;
+    averageOverallScore: number;
+    useCaseReadiness: { [useCase: string]: { score: number; level: string } };
+    resourceReports: { [resourceType: string]: UsabilityReport };
+    topIssues: any[];
+    preventionInsights: any[];
+  } | null {
+    const reports = this.usabilityReports[assessmentId];
+    if (!reports || Object.keys(reports).length === 0) {
+      return null;
+    }
+
+    const resourceTypes = Object.keys(reports);
+    const allReports = Object.values(reports);
+
+    // Calculate average overall score
+    const averageOverallScore = allReports.reduce((sum, r) => sum + r.averageOverallScore, 0) / allReports.length;
+
+    // Aggregate use case readiness
+    const useCases: UsabilityUseCase[] = [
+      'quality_reporting', 'population_health', 'prior_authorization',
+      'analytics', 'drug_trials', 'risk_adjustment'
+    ];
+
+    const useCaseReadiness: { [useCase: string]: { score: number; level: string } } = {};
+    for (const useCase of useCases) {
+      const scores = allReports.map(r => r.useCaseReadiness.get(useCase)?.readinessScore || 0);
+      const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+      useCaseReadiness[useCase] = {
+        score: Math.round(avgScore * 100) / 100,
+        level: this.getReadinessLevel(avgScore)
+      };
+    }
+
+    // Aggregate top issues and prevention insights
+    const topIssues = allReports.flatMap(r => r.topIssues).slice(0, 10);
+    const preventionInsights = allReports.flatMap(r => r.preventionInsights).slice(0, 5);
+
+    return {
+      assessmentId,
+      averageOverallScore: Math.round(averageOverallScore * 100) / 100,
+      useCaseReadiness,
+      resourceReports: reports,
+      topIssues,
+      preventionInsights
+    };
+  }
+
+  private getReadinessLevel(score: number): string {
+    if (score >= 90) return 'excellent';
+    if (score >= 80) return 'good';
+    if (score >= 70) return 'acceptable';
+    if (score >= 50) return 'needs_improvement';
+    return 'not_ready';
   }
 
   /**
@@ -285,11 +369,43 @@ class AssessmentService {
 
       // Count issues by dimension
       const issuesByDimension = this.countIssuesByDimension(validationResults);
-      
+
+      // Generate usability report for this resource type
+      logger.info(`Generating usability report for ${resourceType}`, {
+        assessmentId: assessment.id,
+        resourceCount: resources.length
+      });
+
+      const usabilityReport = usabilityService.generateUsabilityReport(
+        resources,
+        validationResults,
+        assessment.id
+      );
+
+      // Store usability report
+      if (!this.usabilityReports[assessment.id]) {
+        this.usabilityReports[assessment.id] = {};
+      }
+      this.usabilityReports[assessment.id][resourceType] = usabilityReport;
+
+      logger.info(`Usability report generated for ${resourceType}`, {
+        assessmentId: assessment.id,
+        averageScore: usabilityReport.averageOverallScore,
+        topIssuesCount: usabilityReport.topIssues.length,
+        preventionInsightsCount: usabilityReport.preventionInsights.length
+      });
+
       // Log validation results
       await storage.createAssessmentLog({
         assessmentId: assessment.id,
         message: `Completed validation of ${resources.length} ${resourceType} resources`,
+        level: "info"
+      });
+
+      // Log usability scoring results
+      await storage.createAssessmentLog({
+        assessmentId: assessment.id,
+        message: `Usability analysis complete for ${resourceType}: Overall score ${usabilityReport.averageOverallScore.toFixed(1)}%`,
         level: "info"
       });
       

@@ -688,6 +688,171 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Usability Scoring API routes
+  app.get("/api/assessments/:id/usability", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const resourceType = req.query.resourceType as string | undefined;
+
+      const assessment = await storage.getAssessment(id);
+
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      if (assessment.status !== 'completed') {
+        return res.status(400).json({
+          error: "Usability report not available until assessment is completed"
+        });
+      }
+
+      // Get usability report(s)
+      const reports = assessmentService.getUsabilityReports(id, resourceType);
+
+      if (!reports) {
+        return res.status(404).json({ error: "Usability report not found" });
+      }
+
+      // Convert Map to object for JSON serialization
+      const serializableReports = resourceType ? serializeUsabilityReport(reports) :
+        Object.fromEntries(
+          Object.entries(reports).map(([key, value]) => [key, serializeUsabilityReport(value)])
+        );
+
+      res.json({
+        assessmentId: id,
+        resourceType: resourceType || 'all',
+        reports: serializableReports
+      });
+    } catch (error) {
+      console.error("Error fetching usability reports:", error);
+      res.status(500).json({ error: "Failed to fetch usability reports" });
+    }
+  });
+
+  app.get("/api/assessments/:id/usability/aggregated", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const assessment = await storage.getAssessment(id);
+
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      if (assessment.status !== 'completed') {
+        return res.status(400).json({
+          error: "Usability report not available until assessment is completed"
+        });
+      }
+
+      // Get aggregated usability report
+      const report = assessmentService.getAggregatedUsabilityReport(id);
+
+      if (!report) {
+        return res.status(404).json({ error: "Usability report not found" });
+      }
+
+      // Serialize Map objects for JSON response
+      const serializableReport = {
+        ...report,
+        resourceReports: Object.fromEntries(
+          Object.entries(report.resourceReports).map(([key, value]) => [
+            key,
+            serializeUsabilityReport(value)
+          ])
+        )
+      };
+
+      res.json(serializableReport);
+    } catch (error) {
+      console.error("Error fetching aggregated usability report:", error);
+      res.status(500).json({ error: "Failed to fetch aggregated usability report" });
+    }
+  });
+
+  app.get("/api/assessments/:id/usability/use-cases", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const assessment = await storage.getAssessment(id);
+
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      if (assessment.status !== 'completed') {
+        return res.status(400).json({
+          error: "Usability report not available until assessment is completed"
+        });
+      }
+
+      // Get aggregated usability report
+      const report = assessmentService.getAggregatedUsabilityReport(id);
+
+      if (!report) {
+        return res.status(404).json({ error: "Usability report not found" });
+      }
+
+      // Return only use case readiness scores
+      res.json({
+        assessmentId: id,
+        averageOverallScore: report.averageOverallScore,
+        useCaseReadiness: report.useCaseReadiness
+      });
+    } catch (error) {
+      console.error("Error fetching use case readiness:", error);
+      res.status(500).json({ error: "Failed to fetch use case readiness" });
+    }
+  });
+
+  app.get("/api/assessments/:id/usability/prevention", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+
+      const assessment = await storage.getAssessment(id);
+
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+
+      if (assessment.status !== 'completed') {
+        return res.status(400).json({
+          error: "Usability report not available until assessment is completed"
+        });
+      }
+
+      // Get aggregated usability report
+      const report = assessmentService.getAggregatedUsabilityReport(id);
+
+      if (!report) {
+        return res.status(404).json({ error: "Usability report not found" });
+      }
+
+      // Return prevention insights
+      res.json({
+        assessmentId: id,
+        preventionInsights: report.preventionInsights,
+        topIssues: report.topIssues
+      });
+    } catch (error) {
+      console.error("Error fetching prevention insights:", error);
+      res.status(500).json({ error: "Failed to fetch prevention insights" });
+    }
+  });
+
+  // Helper function to serialize usability report (convert Maps to objects)
+  function serializeUsabilityReport(report: any): any {
+    if (!report) return null;
+
+    return {
+      ...report,
+      useCaseReadiness: report.useCaseReadiness instanceof Map
+        ? Object.fromEntries(report.useCaseReadiness)
+        : report.useCaseReadiness
+    };
+  }
+
   // Global error handler (must be last)
   app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     // Log the error
