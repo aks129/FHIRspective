@@ -93,8 +93,8 @@ class ValidatorService {
   }
 
   /**
-   * Validate resources using HAPI FHIR Validator
-   * This is a simplified version for demo purposes
+   * Validate resources using server-side $validate operation
+   * Falls back to local validation if server doesn't support it
    */
   private async validateWithHapi(
     connection: ServerConnection,
@@ -102,8 +102,46 @@ class ValidatorService {
     resourceType: string,
     implementationGuide: string
   ): Promise<ValidationResult[]> {
-    // In a real implementation, this would call the HAPI FHIR Validator API
-    return this.performLocalValidation(resources, resourceType, implementationGuide);
+    console.log(`Attempting server-side validation for ${resources.length} ${resourceType} resources`);
+    const results: ValidationResult[] = [];
+
+    for (const resource of resources) {
+      try {
+        // Try server-side validation first
+        const serverResult = await fhirService.validateResource(connection, resource);
+
+        if (serverResult.issues.length > 0) {
+          // Server returned validation issues
+          const issues: ValidationIssue[] = serverResult.issues.map((issue: any) => ({
+            severity: issue.severity || 'error',
+            code: issue.code || 'unknown',
+            diagnostics: issue.diagnostics || 'Unknown issue',
+            location: issue.location,
+            expression: issue.expression,
+            dimension: issue.dimension || 'conformity',
+            fixable: false
+          }));
+
+          results.push({
+            resourceType: resource.resourceType || resourceType,
+            resourceId: resource.id || 'unknown',
+            valid: serverResult.success,
+            issues
+          });
+        } else {
+          // Server validation passed or not supported, fall back to local
+          const localResults = await this.performLocalValidation([resource], resourceType, implementationGuide);
+          results.push(...localResults);
+        }
+      } catch (error) {
+        console.log(`Server validation failed for ${resource.id}, falling back to local validation`);
+        // Fall back to local validation on error
+        const localResults = await this.performLocalValidation([resource], resourceType, implementationGuide);
+        results.push(...localResults);
+      }
+    }
+
+    return results;
   }
 
   /**

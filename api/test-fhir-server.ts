@@ -11,7 +11,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { url, authType, username, password, token, timeout } = req.body;
+    const { url, authType, username, password, token, clientId, clientSecret, tokenUrl, timeout } = req.body;
 
     // Validate required fields
     if (!url) {
@@ -28,6 +28,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       username,
       password,
       token,
+      clientId,
+      clientSecret,
+      tokenUrl,
       timeout: timeout || 30
     };
 

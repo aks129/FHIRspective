@@ -66,13 +66,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/fhir-servers/test-connection", async (req: Request, res: Response) => {
     try {
-      const { url, authType, username, password, token, timeout } = req.body;
+      const { url, authType, username, password, token, clientId, clientSecret, tokenUrl, timeout } = req.body;
 
       // Validate required fields
       if (!url) {
         return res.status(400).json({
           success: false,
           error: "URL is required"
+        });
+      }
+
+      // Validate OAuth2 client credentials if selected
+      if (authType === 'oauth2' && clientId && clientSecret && !tokenUrl) {
+        return res.status(400).json({
+          success: false,
+          error: "Token URL is required for OAuth2 client credentials"
         });
       }
 
@@ -84,12 +92,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         username: username || null,
         password: password || null,
         token: token || null,
+        clientId: clientId || null,
+        clientSecret: clientSecret || null,
+        tokenUrl: tokenUrl || null,
+        accessToken: null,
+        tokenExpiresAt: null,
         timeout: typeof timeout === 'number' ? timeout : (parseInt(timeout) || 30),
         lastUsed: new Date(),
         userId: null
       };
-      
-      console.log(`Testing connection to FHIR server: ${serverConnection.url}`);
+
+      console.log(`Testing connection to FHIR server: ${serverConnection.url} (auth: ${serverConnection.authType})`);
       const connectionResult = await fhirService.testConnection(serverConnection);
       console.log(`Connection test result:`, connectionResult);
 

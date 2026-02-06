@@ -88,6 +88,11 @@ export class MemStorage implements IStorage {
         username: null,
         password: null,
         token: null,
+        clientId: null,
+        clientSecret: null,
+        tokenUrl: null,
+        accessToken: null,
+        tokenExpiresAt: null,
         lastUsed: new Date()
       },
       {
@@ -99,6 +104,11 @@ export class MemStorage implements IStorage {
         username: null,
         password: null,
         token: null,
+        clientId: null,
+        clientSecret: null,
+        tokenUrl: null,
+        accessToken: null,
+        tokenExpiresAt: null,
         lastUsed: new Date()
       },
       {
@@ -110,6 +120,11 @@ export class MemStorage implements IStorage {
         username: null,
         password: null,
         token: null,
+        clientId: null,
+        clientSecret: null,
+        tokenUrl: null,
+        accessToken: null,
+        tokenExpiresAt: null,
         lastUsed: new Date()
       }
     ];
@@ -152,7 +167,18 @@ export class MemStorage implements IStorage {
   async createFhirServer(insertServer: InsertFhirServer): Promise<FhirServer> {
     const server: FhirServer = {
       id: this.nextIds.fhirServer++,
-      ...insertServer,
+      url: insertServer.url,
+      authType: insertServer.authType || 'none',
+      username: insertServer.username || null,
+      password: insertServer.password || null,
+      token: insertServer.token || null,
+      clientId: insertServer.clientId || null,
+      clientSecret: insertServer.clientSecret || null,
+      tokenUrl: insertServer.tokenUrl || null,
+      accessToken: null,
+      tokenExpiresAt: null,
+      timeout: insertServer.timeout || 30,
+      userId: insertServer.userId || null,
       lastUsed: new Date()
     };
     this.fhirServers.push(server);
@@ -184,8 +210,19 @@ export class MemStorage implements IStorage {
   async createAssessment(insertAssessment: InsertAssessment): Promise<Assessment> {
     const assessment: Assessment = {
       id: this.nextIds.assessment++,
-      ...insertAssessment,
-      status: insertAssessment.status || "pending",
+      serverId: insertAssessment.serverId,
+      userId: insertAssessment.userId || null,
+      name: insertAssessment.name || 'FHIR Assessment',
+      resources: insertAssessment.resources,
+      sampleSize: insertAssessment.sampleSize || '100',
+      validator: insertAssessment.validator || 'inferno',
+      implementationGuide: insertAssessment.implementationGuide || 'uscore',
+      qualityFramework: insertAssessment.qualityFramework || 'kahn',
+      dimensions: insertAssessment.dimensions,
+      purpose: insertAssessment.purpose,
+      remediationOptions: insertAssessment.remediationOptions,
+      exportFormat: insertAssessment.exportFormat || 'json',
+      status: 'pending',
       createdAt: new Date(),
       completedAt: null
     };
@@ -222,7 +259,18 @@ export class MemStorage implements IStorage {
   async createAssessmentResult(insertResult: InsertAssessmentResult): Promise<AssessmentResult> {
     const result: AssessmentResult = {
       id: this.nextIds.assessmentResult++,
-      ...insertResult,
+      assessmentId: insertResult.assessmentId,
+      resourceType: insertResult.resourceType,
+      resourcesEvaluated: insertResult.resourcesEvaluated,
+      issuesIdentified: insertResult.issuesIdentified,
+      autoFixed: insertResult.autoFixed,
+      qualityScore: insertResult.qualityScore,
+      completenessScore: insertResult.completenessScore,
+      conformityScore: insertResult.conformityScore,
+      plausibilityScore: insertResult.plausibilityScore,
+      timelinessScore: insertResult.timelinessScore ?? null,
+      calculabilityScore: insertResult.calculabilityScore ?? null,
+      issues: insertResult.issues,
       createdAt: new Date()
     };
     this.assessmentResults.push(result);
@@ -242,8 +290,10 @@ export class MemStorage implements IStorage {
   async createAssessmentLog(insertLog: InsertAssessmentLog): Promise<AssessmentLog> {
     const log: AssessmentLog = {
       id: this.nextIds.assessmentLog++,
-      ...insertLog,
-      timestamp: insertLog.timestamp || new Date()
+      assessmentId: insertLog.assessmentId,
+      message: insertLog.message,
+      level: insertLog.level || 'info',
+      timestamp: new Date()
     };
     this.assessmentLogs.push(log);
     return log;
@@ -264,7 +314,10 @@ export class MemStorage implements IStorage {
 
     const config: DatabricksConfig = {
       id: this.nextIds.databricksConfig++,
-      ...insertConfig,
+      userId: insertConfig.userId,
+      workspaceUrl: insertConfig.workspaceUrl,
+      accessToken: insertConfig.accessToken,
+      clusterId: insertConfig.clusterId || null,
       isActive: true,
       lastTestedAt: null,
       createdAt: new Date(),

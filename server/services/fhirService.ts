@@ -1,5 +1,6 @@
 /**
  * Service for interacting with FHIR servers
+ * Implements OAuth2 client credentials flow with automatic token refresh
  */
 
 import { FhirServer } from "@shared/schema";
@@ -11,6 +12,14 @@ type ServerConnection = FhirServer;
 
 // Create logger for this service
 const logger = createLogger('FhirService');
+
+// In-memory token cache for OAuth2 client credentials
+interface TokenCache {
+  accessToken: string;
+  expiresAt: Date;
+}
+
+const tokenCache: Map<string, TokenCache> = new Map();
 
 /**
  * Universal base64 encoder that works in Node.js, Edge runtime, and browser
@@ -42,6 +51,101 @@ export interface ConnectionTestResult {
 
 class FhirService {
   /**
+   * Acquire OAuth2 access token using client credentials grant
+   */
+  private async acquireOAuth2Token(connection: ServerConnection): Promise<string> {
+    const methodLogger = logger.child('acquireOAuth2Token');
+
+    if (!connection.clientId || !connection.clientSecret || !connection.tokenUrl) {
+      throw new FhirError(
+        'OAuth2 client credentials require clientId, clientSecret, and tokenUrl',
+        ErrorCode.FHIR_AUTH_ERROR,
+        { authType: 'oauth2' }
+      );
+    }
+
+    // Check cache first
+    const cacheKey = `${connection.clientId}:${connection.tokenUrl}`;
+    const cached = tokenCache.get(cacheKey);
+
+    if (cached && cached.expiresAt > new Date()) {
+      methodLogger.debug('Using cached OAuth2 token', {
+        expiresAt: cached.expiresAt.toISOString()
+      });
+      return cached.accessToken;
+    }
+
+    methodLogger.info('Acquiring new OAuth2 token', {
+      tokenUrl: connection.tokenUrl,
+      clientId: connection.clientId
+    });
+
+    try {
+      const response = await fetch(connection.tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: connection.clientId,
+          client_secret: connection.clientSecret,
+        }).toString(),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown error');
+        methodLogger.error('OAuth2 token acquisition failed', undefined, {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText.substring(0, 200)
+        });
+        throw new FhirError(
+          `OAuth2 authentication failed: ${response.status} ${response.statusText}`,
+          ErrorCode.FHIR_AUTH_ERROR,
+          { status: response.status, error: errorText.substring(0, 200) }
+        );
+      }
+
+      const tokenData = await response.json();
+      const accessToken = tokenData.access_token;
+      const expiresIn = tokenData.expires_in || 3600; // Default 1 hour
+
+      // Cache the token with 60-second buffer before expiry
+      const expiresAt = new Date(Date.now() + (expiresIn - 60) * 1000);
+      tokenCache.set(cacheKey, { accessToken, expiresAt });
+
+      methodLogger.info('Successfully acquired OAuth2 token', {
+        expiresIn,
+        expiresAt: expiresAt.toISOString()
+      });
+
+      return accessToken;
+    } catch (error) {
+      if (error instanceof FhirError) {
+        throw error;
+      }
+      methodLogger.error('Error during OAuth2 token acquisition', error as Error);
+      throw new FhirError(
+        `OAuth2 authentication failed: ${error instanceof Error ? error.message : String(error)}`,
+        ErrorCode.FHIR_AUTH_ERROR,
+        {}
+      );
+    }
+  }
+
+  /**
+   * Clear cached token for a connection (useful for token refresh on 401)
+   */
+  private clearCachedToken(connection: ServerConnection): void {
+    if (connection.clientId && connection.tokenUrl) {
+      const cacheKey = `${connection.clientId}:${connection.tokenUrl}`;
+      tokenCache.delete(cacheKey);
+      logger.debug('Cleared cached OAuth2 token', { clientId: connection.clientId });
+    }
+  }
+
+  /**
    * Test connection to a FHIR server
    */
   async testConnection(connection: ServerConnection): Promise<ConnectionTestResult> {
@@ -53,10 +157,11 @@ class FhirService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), connection.timeout * 1000);
 
-      // Build request options with authentication
+      // Build request options with authentication (async for OAuth2 support)
+      const headers = await this.buildHeaders(connection);
       const options: RequestInit = {
         method: 'GET',
-        headers: this.buildHeaders(connection),
+        headers,
         signal: controller.signal
       };
 
@@ -172,10 +277,11 @@ class FhirService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), connection.timeout * 1000);
 
-      // Build request options with authentication
+      // Build request options with authentication (async for OAuth2 support)
+      const headers = await this.buildHeaders(connection);
       const options: RequestInit = {
         method: 'GET',
-        headers: this.buildHeaders(connection),
+        headers,
         signal: controller.signal
       };
 
@@ -303,9 +409,128 @@ class FhirService {
   }
   
   /**
-   * Build headers with appropriate authentication
+   * Validate a FHIR resource using the server's $validate operation
+   * Returns OperationOutcome with validation issues
    */
-  private buildHeaders(connection: ServerConnection): HeadersInit {
+  async validateResource(connection: ServerConnection, resource: any): Promise<{ success: boolean; issues: any[] }> {
+    const methodLogger = logger.child('validateResource');
+    const resourceType = resource.resourceType;
+
+    if (!resourceType) {
+      return {
+        success: false,
+        issues: [{
+          severity: 'error',
+          code: 'invalid',
+          diagnostics: 'Resource is missing resourceType',
+          dimension: 'conformity'
+        }]
+      };
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), connection.timeout * 1000);
+
+      const headers = await this.buildHeaders(connection);
+      const baseUrl = this.normalizeUrl(connection.url);
+      const validateUrl = `${baseUrl}/${resourceType}/$validate`;
+
+      methodLogger.debug('Validating resource', { resourceType, url: validateUrl });
+
+      let response: Response;
+      try {
+        response = await fetch(validateUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(resource),
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      const outcome = await response.json();
+
+      // Parse OperationOutcome to extract issues
+      if (outcome.resourceType === 'OperationOutcome' && outcome.issue) {
+        const issues = outcome.issue.map((issue: any) => ({
+          severity: issue.severity || 'error',
+          code: issue.code || 'unknown',
+          diagnostics: issue.diagnostics || issue.details?.text || 'Unknown issue',
+          location: issue.location,
+          expression: issue.expression,
+          dimension: this.mapIssueCodeToDimension(issue.code)
+        }));
+
+        const hasErrors = issues.some((i: any) => i.severity === 'error' || i.severity === 'fatal');
+
+        return {
+          success: !hasErrors,
+          issues
+        };
+      }
+
+      // If server returns the resource itself, validation passed
+      if (outcome.resourceType === resourceType) {
+        return { success: true, issues: [] };
+      }
+
+      methodLogger.warn('Unexpected validation response', { resourceType: outcome.resourceType });
+      return { success: true, issues: [] };
+
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        methodLogger.warn('Validation request timed out');
+        return {
+          success: false,
+          issues: [{
+            severity: 'error',
+            code: 'timeout',
+            diagnostics: 'Server-side validation timed out',
+            dimension: 'conformity'
+          }]
+        };
+      }
+
+      // Server may not support $validate, log and return empty
+      methodLogger.debug('Server validation failed, may not be supported', {
+        error: error.message
+      });
+      return {
+        success: true,
+        issues: [] // Return empty to indicate fallback to local validation
+      };
+    }
+  }
+
+  /**
+   * Map FHIR issue codes to quality dimensions
+   */
+  private mapIssueCodeToDimension(code: string): string {
+    const dimensionMap: { [key: string]: string } = {
+      'required': 'completeness',
+      'structure': 'conformity',
+      'value': 'conformity',
+      'invariant': 'conformity',
+      'business-rule': 'plausibility',
+      'code-invalid': 'conformity',
+      'extension': 'conformity',
+      'not-found': 'completeness',
+      'deleted': 'timeliness',
+      'multiple-matches': 'conformity',
+      'expired': 'timeliness',
+      'locked': 'timeliness',
+      'processing': 'conformity',
+    };
+    return dimensionMap[code] || 'conformity';
+  }
+
+  /**
+   * Build headers with appropriate authentication
+   * Now async to support OAuth2 client credentials token acquisition
+   */
+  private async buildHeaders(connection: ServerConnection): Promise<HeadersInit> {
     const headers: HeadersInit = {
       'Accept': 'application/fhir+json',
       'Content-Type': 'application/fhir+json'
@@ -332,11 +557,18 @@ class FhirService {
           }
           break;
         case 'oauth2':
-          if (connection.token) {
+          // Support both static token and client credentials flow
+          if (connection.clientId && connection.clientSecret && connection.tokenUrl) {
+            // OAuth2 client credentials flow
+            const accessToken = await this.acquireOAuth2Token(connection);
+            headers['Authorization'] = `Bearer ${accessToken}`;
+            console.log('Added OAuth2 client credentials Bearer token');
+          } else if (connection.token) {
+            // Fallback to static token
             headers['Authorization'] = `Bearer ${connection.token}`;
             console.log('Added OAuth2 Bearer token auth header');
           } else {
-            console.warn('OAuth2 auth selected but token is missing');
+            console.warn('OAuth2 auth selected but neither client credentials nor token is configured');
           }
           break;
         case 'none':
@@ -347,7 +579,11 @@ class FhirService {
       }
     } catch (error) {
       console.error('Error building auth headers:', error);
-      throw new Error('Failed to build authentication headers');
+      throw new FhirError(
+        `Failed to build authentication headers: ${error instanceof Error ? error.message : String(error)}`,
+        ErrorCode.FHIR_AUTH_ERROR,
+        {}
+      );
     }
 
     return headers;
