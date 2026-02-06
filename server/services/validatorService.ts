@@ -46,7 +46,7 @@ class ValidatorService {
       
       switch (validator) {
         case 'inferno':
-          results = await this.validateWithInferno(resources, resourceType, implementationGuide);
+          results = await this.validateWithInferno(connection, resources, resourceType, implementationGuide);
           break;
         case 'hapi':
           results = await this.validateWithHapi(connection, resources, resourceType, implementationGuide);
@@ -81,15 +81,54 @@ class ValidatorService {
 
   /**
    * Validate resources using Inferno validator
-   * This is a simplified version for demo purposes
+   * Uses server-side $validate if available, falls back to local validation
    */
   private async validateWithInferno(
+    connection: ServerConnection,
     resources: any[],
     resourceType: string,
     implementationGuide: string
   ): Promise<ValidationResult[]> {
-    // In a real implementation, this would call the Inferno API
-    return this.performLocalValidation(resources, resourceType, implementationGuide);
+    console.log(`Attempting Inferno/server-side validation for ${resources.length} ${resourceType} resources`);
+    const results: ValidationResult[] = [];
+
+    for (const resource of resources) {
+      try {
+        // Try server-side validation first (Inferno-compatible servers support $validate)
+        const serverResult = await fhirService.validateResource(connection, resource);
+
+        if (serverResult.issues.length > 0) {
+          // Server returned validation issues
+          const issues: ValidationIssue[] = serverResult.issues.map((issue: any) => ({
+            severity: issue.severity || 'error',
+            code: issue.code || 'unknown',
+            diagnostics: issue.diagnostics || 'Unknown issue',
+            location: issue.location,
+            expression: issue.expression,
+            dimension: issue.dimension || 'conformity',
+            fixable: false
+          }));
+
+          results.push({
+            resourceType: resource.resourceType || resourceType,
+            resourceId: resource.id || 'unknown',
+            valid: serverResult.success,
+            issues
+          });
+        } else {
+          // Server validation passed or not supported, enhance with local validation
+          const localResults = await this.performLocalValidation([resource], resourceType, implementationGuide);
+          results.push(...localResults);
+        }
+      } catch (error) {
+        console.log(`Server validation failed for ${resource.id}, falling back to local validation`);
+        // Fall back to local validation on error
+        const localResults = await this.performLocalValidation([resource], resourceType, implementationGuide);
+        results.push(...localResults);
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -204,7 +243,24 @@ class ValidatorService {
         case 'MedicationRequest':
           this.validateMedicationRequestResource(resource, issues, fixedIssues);
           break;
-        // Additional resource types can be added here
+        case 'Procedure':
+          this.validateProcedureResource(resource, issues, fixedIssues);
+          break;
+        case 'AllergyIntolerance':
+          this.validateAllergyIntoleranceResource(resource, issues, fixedIssues);
+          break;
+        case 'Immunization':
+          this.validateImmunizationResource(resource, issues, fixedIssues);
+          break;
+        case 'DiagnosticReport':
+          this.validateDiagnosticReportResource(resource, issues, fixedIssues);
+          break;
+        case 'CarePlan':
+          this.validateCarePlanResource(resource, issues, fixedIssues);
+          break;
+        case 'Goal':
+          this.validateGoalResource(resource, issues, fixedIssues);
+          break;
       }
 
       // Add implementation guide specific validation
@@ -944,11 +1000,737 @@ class ValidatorService {
   }
 
   /**
+   * Validate Procedure resources
+   */
+  private validateProcedureResource(resource: any, issues: ValidationIssue[], fixedIssues: ValidationIssue[]): void {
+    // Check for status - required field
+    if (!resource.status) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Procedure resource must have a status',
+        expression: ['Procedure.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: false
+      });
+      fixedIssues.push({
+        severity: 'information',
+        code: 'fixed',
+        diagnostics: 'Added default status: unknown',
+        expression: ['Procedure.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: true
+      });
+    } else {
+      const validStatuses = ['preparation', 'in-progress', 'not-done', 'on-hold', 'stopped', 'completed', 'entered-in-error', 'unknown'];
+      if (!validStatuses.includes(resource.status)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid status value: ${resource.status}. Must be one of: ${validStatuses.join(', ')}`,
+          expression: ['Procedure.status'],
+          dimension: 'conformity',
+          fixable: true,
+          fixed: false
+        });
+      }
+    }
+
+    // Check for code - required field
+    if (!resource.code) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Procedure resource must have a code',
+        expression: ['Procedure.code'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for subject reference - required field
+    if (!resource.subject || !resource.subject.reference) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Procedure resource must have a subject reference',
+        expression: ['Procedure.subject'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check performed date for plausibility
+    if (resource.performedDateTime) {
+      const performedDate = new Date(resource.performedDateTime);
+      const today = new Date();
+
+      if (performedDate > today && resource.status === 'completed') {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: 'Performed date is in the future but procedure is marked as completed',
+          expression: ['Procedure.performedDateTime'],
+          dimension: 'plausibility',
+          fixable: false
+        });
+      }
+    }
+
+    // Check for performer if status is completed
+    if (resource.status === 'completed' && (!resource.performer || resource.performer.length === 0)) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'Completed procedure should have a performer',
+        expression: ['Procedure.performer'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+  }
+
+  /**
+   * Validate AllergyIntolerance resources
+   */
+  private validateAllergyIntoleranceResource(resource: any, issues: ValidationIssue[], fixedIssues: ValidationIssue[]): void {
+    // Check for clinicalStatus
+    if (resource.clinicalStatus) {
+      if (!resource.clinicalStatus.coding || !Array.isArray(resource.clinicalStatus.coding) || resource.clinicalStatus.coding.length === 0) {
+        issues.push({
+          severity: 'error',
+          code: 'required',
+          diagnostics: 'AllergyIntolerance.clinicalStatus must have at least one coding',
+          expression: ['AllergyIntolerance.clinicalStatus.coding'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      } else {
+        const validCodes = ['active', 'inactive', 'resolved'];
+        const hasValidCode = resource.clinicalStatus.coding.some((coding: any) =>
+          coding.system === 'http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical' &&
+          validCodes.includes(coding.code)
+        );
+        if (!hasValidCode) {
+          issues.push({
+            severity: 'error',
+            code: 'value',
+            diagnostics: 'AllergyIntolerance.clinicalStatus must contain a valid code',
+            expression: ['AllergyIntolerance.clinicalStatus.coding'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // Check for verificationStatus
+    if (resource.verificationStatus) {
+      const validCodes = ['unconfirmed', 'confirmed', 'refuted', 'entered-in-error'];
+      if (resource.verificationStatus.coding) {
+        const hasValidCode = resource.verificationStatus.coding.some((coding: any) =>
+          coding.system === 'http://terminology.hl7.org/CodeSystem/allergyintolerance-verification' &&
+          validCodes.includes(coding.code)
+        );
+        if (!hasValidCode) {
+          issues.push({
+            severity: 'error',
+            code: 'value',
+            diagnostics: 'AllergyIntolerance.verificationStatus must contain a valid code',
+            expression: ['AllergyIntolerance.verificationStatus.coding'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // Check for code (allergen)
+    if (!resource.code) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'AllergyIntolerance should have a code identifying the allergen',
+        expression: ['AllergyIntolerance.code'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for patient reference - required field
+    if (!resource.patient || !resource.patient.reference) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'AllergyIntolerance resource must have a patient reference',
+        expression: ['AllergyIntolerance.patient'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check category is valid if present
+    if (resource.category && Array.isArray(resource.category)) {
+      const validCategories = ['food', 'medication', 'environment', 'biologic'];
+      for (const cat of resource.category) {
+        if (!validCategories.includes(cat)) {
+          issues.push({
+            severity: 'error',
+            code: 'value',
+            diagnostics: `Invalid category value: ${cat}. Must be one of: ${validCategories.join(', ')}`,
+            expression: ['AllergyIntolerance.category'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // Check criticality is valid if present
+    if (resource.criticality) {
+      const validCriticality = ['low', 'high', 'unable-to-assess'];
+      if (!validCriticality.includes(resource.criticality)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid criticality value: ${resource.criticality}. Must be one of: ${validCriticality.join(', ')}`,
+          expression: ['AllergyIntolerance.criticality'],
+          dimension: 'conformity',
+          fixable: false
+        });
+      }
+    }
+
+    // Check onset date plausibility
+    if (resource.onsetDateTime) {
+      const onsetDate = new Date(resource.onsetDateTime);
+      const today = new Date();
+      if (onsetDate > today) {
+        issues.push({
+          severity: 'warning',
+          code: 'value',
+          diagnostics: 'Onset date is in the future',
+          expression: ['AllergyIntolerance.onsetDateTime'],
+          dimension: 'plausibility',
+          fixable: false
+        });
+      }
+    }
+  }
+
+  /**
+   * Validate Immunization resources
+   */
+  private validateImmunizationResource(resource: any, issues: ValidationIssue[], fixedIssues: ValidationIssue[]): void {
+    // Check for status - required field
+    if (!resource.status) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Immunization resource must have a status',
+        expression: ['Immunization.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: false
+      });
+      fixedIssues.push({
+        severity: 'information',
+        code: 'fixed',
+        diagnostics: 'Added default status: completed',
+        expression: ['Immunization.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: true
+      });
+    } else {
+      const validStatuses = ['completed', 'entered-in-error', 'not-done'];
+      if (!validStatuses.includes(resource.status)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid status value: ${resource.status}. Must be one of: ${validStatuses.join(', ')}`,
+          expression: ['Immunization.status'],
+          dimension: 'conformity',
+          fixable: true,
+          fixed: false
+        });
+      }
+    }
+
+    // Check for vaccineCode - required field
+    if (!resource.vaccineCode) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Immunization resource must have a vaccineCode',
+        expression: ['Immunization.vaccineCode'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for patient reference - required field
+    if (!resource.patient || !resource.patient.reference) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Immunization resource must have a patient reference',
+        expression: ['Immunization.patient'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for occurrenceDateTime or occurrenceString - required field
+    if (!resource.occurrenceDateTime && !resource.occurrenceString) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Immunization resource must have an occurrence date/time',
+        expression: ['Immunization.occurrence[x]'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check occurrence date plausibility
+    if (resource.occurrenceDateTime) {
+      const occurrenceDate = new Date(resource.occurrenceDateTime);
+      const today = new Date();
+
+      if (occurrenceDate > today && resource.status === 'completed') {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: 'Occurrence date is in the future but immunization is marked as completed',
+          expression: ['Immunization.occurrenceDateTime'],
+          dimension: 'plausibility',
+          fixable: false
+        });
+      }
+
+      // Check for implausibly old dates (before 1900)
+      if (occurrenceDate.getFullYear() < 1900) {
+        issues.push({
+          severity: 'warning',
+          code: 'value',
+          diagnostics: 'Occurrence date is implausibly old',
+          expression: ['Immunization.occurrenceDateTime'],
+          dimension: 'plausibility',
+          fixable: false
+        });
+      }
+    }
+
+    // Check for statusReason if status is not-done
+    if (resource.status === 'not-done' && !resource.statusReason) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'Immunization with status not-done should have a statusReason',
+        expression: ['Immunization.statusReason'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for lotNumber for completed immunizations
+    if (resource.status === 'completed' && !resource.lotNumber) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'Completed immunization should have a lot number',
+        expression: ['Immunization.lotNumber'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for expirationDate plausibility
+    if (resource.expirationDate) {
+      const expirationDate = new Date(resource.expirationDate);
+      if (resource.occurrenceDateTime) {
+        const occurrenceDate = new Date(resource.occurrenceDateTime);
+        if (expirationDate < occurrenceDate) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'Vaccine expiration date is before the occurrence date',
+            expression: ['Immunization.expirationDate'],
+            dimension: 'plausibility',
+            fixable: false
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate DiagnosticReport resources
+   */
+  private validateDiagnosticReportResource(resource: any, issues: ValidationIssue[], fixedIssues: ValidationIssue[]): void {
+    // Check for status - required field
+    if (!resource.status) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'DiagnosticReport resource must have a status',
+        expression: ['DiagnosticReport.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: false
+      });
+      fixedIssues.push({
+        severity: 'information',
+        code: 'fixed',
+        diagnostics: 'Added default status: unknown',
+        expression: ['DiagnosticReport.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: true
+      });
+    } else {
+      const validStatuses = ['registered', 'partial', 'preliminary', 'final', 'amended', 'corrected', 'appended', 'cancelled', 'entered-in-error', 'unknown'];
+      if (!validStatuses.includes(resource.status)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid status value: ${resource.status}. Must be one of: ${validStatuses.join(', ')}`,
+          expression: ['DiagnosticReport.status'],
+          dimension: 'conformity',
+          fixable: true,
+          fixed: false
+        });
+      }
+    }
+
+    // Check for code - required field
+    if (!resource.code) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'DiagnosticReport resource must have a code',
+        expression: ['DiagnosticReport.code'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for subject reference
+    if (!resource.subject || !resource.subject.reference) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'DiagnosticReport should have a subject reference',
+        expression: ['DiagnosticReport.subject'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for issued date - timeliness validation
+    if (resource.issued) {
+      const issuedDate = new Date(resource.issued);
+      const today = new Date();
+
+      if (issuedDate > today) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: 'Issued date is in the future',
+          expression: ['DiagnosticReport.issued'],
+          dimension: 'timeliness',
+          fixable: false
+        });
+      }
+
+      // Check if report is too old (more than 30 days from effective date)
+      if (resource.effectiveDateTime) {
+        const effectiveDate = new Date(resource.effectiveDateTime);
+        const daysDiff = (issuedDate.getTime() - effectiveDate.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysDiff > 30) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'Report issued more than 30 days after effective date',
+            expression: ['DiagnosticReport.issued'],
+            dimension: 'timeliness',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // Check for results reference if status is final
+    if ((resource.status === 'final' || resource.status === 'amended' || resource.status === 'corrected') &&
+        (!resource.result || resource.result.length === 0) &&
+        (!resource.presentedForm || resource.presentedForm.length === 0) &&
+        !resource.conclusion) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'Final DiagnosticReport should have results, presented form, or conclusion',
+        expression: ['DiagnosticReport.result'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+  }
+
+  /**
+   * Validate CarePlan resources
+   */
+  private validateCarePlanResource(resource: any, issues: ValidationIssue[], fixedIssues: ValidationIssue[]): void {
+    // Check for status - required field
+    if (!resource.status) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'CarePlan resource must have a status',
+        expression: ['CarePlan.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: false
+      });
+      fixedIssues.push({
+        severity: 'information',
+        code: 'fixed',
+        diagnostics: 'Added default status: unknown',
+        expression: ['CarePlan.status'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: true
+      });
+    } else {
+      const validStatuses = ['draft', 'active', 'on-hold', 'revoked', 'completed', 'entered-in-error', 'unknown'];
+      if (!validStatuses.includes(resource.status)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid status value: ${resource.status}. Must be one of: ${validStatuses.join(', ')}`,
+          expression: ['CarePlan.status'],
+          dimension: 'conformity',
+          fixable: true,
+          fixed: false
+        });
+      }
+    }
+
+    // Check for intent - required field
+    if (!resource.intent) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'CarePlan resource must have an intent',
+        expression: ['CarePlan.intent'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: false
+      });
+      fixedIssues.push({
+        severity: 'information',
+        code: 'fixed',
+        diagnostics: 'Added default intent: plan',
+        expression: ['CarePlan.intent'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: true
+      });
+    } else {
+      const validIntents = ['proposal', 'plan', 'order', 'option'];
+      if (!validIntents.includes(resource.intent)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid intent value: ${resource.intent}. Must be one of: ${validIntents.join(', ')}`,
+          expression: ['CarePlan.intent'],
+          dimension: 'conformity',
+          fixable: true,
+          fixed: false
+        });
+      }
+    }
+
+    // Check for subject reference - required field
+    if (!resource.subject || !resource.subject.reference) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'CarePlan resource must have a subject reference',
+        expression: ['CarePlan.subject'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check period dates for plausibility
+    if (resource.period) {
+      const today = new Date();
+
+      if (resource.period.start) {
+        const startDate = new Date(resource.period.start);
+        if (resource.status === 'completed' && startDate > today) {
+          issues.push({
+            severity: 'error',
+            code: 'value',
+            diagnostics: 'Completed CarePlan has a future start date',
+            expression: ['CarePlan.period.start'],
+            dimension: 'plausibility',
+            fixable: false
+          });
+        }
+      }
+
+      if (resource.period.end) {
+        const endDate = new Date(resource.period.end);
+        if (resource.status === 'active' && endDate < today) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'Active CarePlan has an end date in the past',
+            expression: ['CarePlan.period.end'],
+            dimension: 'timeliness',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // Check for category - recommended
+    if (!resource.category || resource.category.length === 0) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'CarePlan should have at least one category',
+        expression: ['CarePlan.category'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+  }
+
+  /**
+   * Validate Goal resources
+   */
+  private validateGoalResource(resource: any, issues: ValidationIssue[], fixedIssues: ValidationIssue[]): void {
+    // Check for lifecycleStatus - required field
+    if (!resource.lifecycleStatus) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Goal resource must have a lifecycleStatus',
+        expression: ['Goal.lifecycleStatus'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: false
+      });
+      fixedIssues.push({
+        severity: 'information',
+        code: 'fixed',
+        diagnostics: 'Added default lifecycleStatus: active',
+        expression: ['Goal.lifecycleStatus'],
+        dimension: 'completeness',
+        fixable: true,
+        fixed: true
+      });
+    } else {
+      const validStatuses = ['proposed', 'planned', 'accepted', 'active', 'on-hold', 'completed', 'cancelled', 'entered-in-error', 'rejected'];
+      if (!validStatuses.includes(resource.lifecycleStatus)) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: `Invalid lifecycleStatus value: ${resource.lifecycleStatus}. Must be one of: ${validStatuses.join(', ')}`,
+          expression: ['Goal.lifecycleStatus'],
+          dimension: 'conformity',
+          fixable: true,
+          fixed: false
+        });
+      }
+    }
+
+    // Check for description - required field
+    if (!resource.description) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Goal resource must have a description',
+        expression: ['Goal.description'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check for subject reference - required field
+    if (!resource.subject || !resource.subject.reference) {
+      issues.push({
+        severity: 'error',
+        code: 'required',
+        diagnostics: 'Goal resource must have a subject reference',
+        expression: ['Goal.subject'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check achievement status if status is completed
+    if (resource.lifecycleStatus === 'completed' && !resource.achievementStatus) {
+      issues.push({
+        severity: 'warning',
+        code: 'required',
+        diagnostics: 'Completed Goal should have an achievementStatus',
+        expression: ['Goal.achievementStatus'],
+        dimension: 'completeness',
+        fixable: false
+      });
+    }
+
+    // Check target date plausibility
+    if (resource.target && Array.isArray(resource.target)) {
+      const today = new Date();
+      for (let i = 0; i < resource.target.length; i++) {
+        const target = resource.target[i];
+        if (target.dueDate) {
+          const dueDate = new Date(target.dueDate);
+          if (resource.lifecycleStatus === 'completed' && dueDate > today) {
+            issues.push({
+              severity: 'warning',
+              code: 'value',
+              diagnostics: 'Completed Goal has a future target due date',
+              expression: [`Goal.target[${i}].dueDate`],
+              dimension: 'plausibility',
+              fixable: false
+            });
+          }
+        }
+      }
+    }
+
+    // Check start date plausibility
+    if (resource.startDate) {
+      const startDate = new Date(resource.startDate);
+      const today = new Date();
+
+      if (resource.lifecycleStatus === 'completed' && startDate > today) {
+        issues.push({
+          severity: 'error',
+          code: 'value',
+          diagnostics: 'Completed Goal has a future start date',
+          expression: ['Goal.startDate'],
+          dimension: 'plausibility',
+          fixable: false
+        });
+      }
+    }
+  }
+
+  /**
    * Apply validation rules specific to the selected Implementation Guide
    */
   private validateAgainstImplementationGuide(
-    resource: any, 
-    resourceType: string, 
+    resource: any,
+    resourceType: string,
     implementationGuide: string,
     issues: ValidationIssue[],
     fixedIssues: ValidationIssue[]
@@ -1025,6 +1807,282 @@ class ValidatorService {
           code: 'required',
           diagnostics: 'US Core Observation should have a category',
           expression: ['Observation.category'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+    }
+
+    // US Core Condition specific validation
+    if (resourceType === 'Condition') {
+      // US Core requires category
+      if (!resource.category || !Array.isArray(resource.category) || resource.category.length === 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core Condition should have a category',
+          expression: ['Condition.category'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // US Core requires code
+      if (!resource.code || !resource.code.coding || resource.code.coding.length === 0) {
+        issues.push({
+          severity: 'error',
+          code: 'required',
+          diagnostics: 'US Core Condition must have a code with at least one coding',
+          expression: ['Condition.code'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+    }
+
+    // US Core Procedure specific validation
+    if (resourceType === 'Procedure') {
+      // US Core requires code from specific value sets
+      if (resource.code && resource.code.coding) {
+        const hasUSCoreCode = resource.code.coding.some((coding: any) =>
+          coding.system === 'http://www.ama-assn.org/go/cpt' ||
+          coding.system === 'http://snomed.info/sct' ||
+          coding.system === 'http://www.cms.gov/Medicare/Coding/ICD10' ||
+          coding.system === 'http://hl7.org/fhir/sid/icd-10-cm'
+        );
+        if (!hasUSCoreCode) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'US Core Procedure code should be from CPT, SNOMED CT, or ICD-10',
+            expression: ['Procedure.code'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // US Core MedicationRequest specific validation
+    if (resourceType === 'MedicationRequest') {
+      // Check for reportedBoolean or reportedReference
+      if (resource.reportedBoolean === undefined && !resource.reportedReference) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core MedicationRequest should indicate if it was reported',
+          expression: ['MedicationRequest.reported[x]'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // Check for encounter reference (preferred)
+      if (!resource.encounter) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core MedicationRequest should have an encounter reference',
+          expression: ['MedicationRequest.encounter'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // Check for requester
+      if (!resource.requester) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core MedicationRequest should have a requester',
+          expression: ['MedicationRequest.requester'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+    }
+
+    // US Core Immunization specific validation
+    if (resourceType === 'Immunization') {
+      // Check for CVX vaccine code
+      if (resource.vaccineCode && resource.vaccineCode.coding) {
+        const hasCVXCode = resource.vaccineCode.coding.some((coding: any) =>
+          coding.system === 'http://hl7.org/fhir/sid/cvx'
+        );
+        if (!hasCVXCode) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'US Core Immunization vaccineCode should include a CVX code',
+            expression: ['Immunization.vaccineCode'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+
+      // Check for primarySource
+      if (resource.primarySource === undefined) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core Immunization should indicate primarySource',
+          expression: ['Immunization.primarySource'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+    }
+
+    // US Core AllergyIntolerance specific validation
+    if (resourceType === 'AllergyIntolerance') {
+      // Check for code from required binding
+      if (resource.code && resource.code.coding) {
+        const hasValidCode = resource.code.coding.some((coding: any) =>
+          coding.system === 'http://snomed.info/sct' ||
+          coding.system === 'http://www.nlm.nih.gov/research/umls/rxnorm' ||
+          coding.system === 'http://fdasis.nlm.nih.gov'
+        );
+        if (!hasValidCode) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'US Core AllergyIntolerance code should be from SNOMED CT, RxNorm, or UNII',
+            expression: ['AllergyIntolerance.code'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+
+      // Reaction must have manifestation
+      if (resource.reaction && Array.isArray(resource.reaction)) {
+        for (let i = 0; i < resource.reaction.length; i++) {
+          const reaction = resource.reaction[i];
+          if (!reaction.manifestation || reaction.manifestation.length === 0) {
+            issues.push({
+              severity: 'error',
+              code: 'required',
+              diagnostics: 'US Core AllergyIntolerance reaction must have manifestation',
+              expression: [`AllergyIntolerance.reaction[${i}].manifestation`],
+              dimension: 'completeness',
+              fixable: false
+            });
+          }
+        }
+      }
+    }
+
+    // US Core Encounter specific validation
+    if (resourceType === 'Encounter') {
+      // Check for type
+      if (!resource.type || !Array.isArray(resource.type) || resource.type.length === 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core Encounter should have a type',
+          expression: ['Encounter.type'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // Check for location
+      if (!resource.location || resource.location.length === 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core Encounter should have at least one location',
+          expression: ['Encounter.location'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+    }
+
+    // US Core DiagnosticReport specific validation
+    if (resourceType === 'DiagnosticReport') {
+      // Check for category
+      if (!resource.category || !Array.isArray(resource.category) || resource.category.length === 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core DiagnosticReport should have a category',
+          expression: ['DiagnosticReport.category'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // Check for performer
+      if (!resource.performer || resource.performer.length === 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core DiagnosticReport should have a performer',
+          expression: ['DiagnosticReport.performer'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // Check for effective date/period
+      if (!resource.effectiveDateTime && !resource.effectivePeriod) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core DiagnosticReport should have an effective date or period',
+          expression: ['DiagnosticReport.effective[x]'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+    }
+
+    // US Core CarePlan specific validation
+    if (resourceType === 'CarePlan') {
+      // Check for text narrative
+      if (!resource.text || !resource.text.div) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core CarePlan should have a text narrative',
+          expression: ['CarePlan.text'],
+          dimension: 'completeness',
+          fixable: false
+        });
+      }
+
+      // Check for category (assessment-and-plan)
+      if (resource.category && Array.isArray(resource.category)) {
+        const hasUSCoreCategory = resource.category.some((cat: any) =>
+          cat.coding && cat.coding.some((coding: any) =>
+            coding.system === 'http://hl7.org/fhir/us/core/CodeSystem/careplan-category' &&
+            coding.code === 'assess-plan'
+          )
+        );
+        if (!hasUSCoreCategory) {
+          issues.push({
+            severity: 'warning',
+            code: 'value',
+            diagnostics: 'US Core CarePlan should have category assess-plan',
+            expression: ['CarePlan.category'],
+            dimension: 'conformity',
+            fixable: false
+          });
+        }
+      }
+    }
+
+    // US Core Goal specific validation
+    if (resourceType === 'Goal') {
+      // Check for target
+      if (!resource.target || resource.target.length === 0) {
+        issues.push({
+          severity: 'warning',
+          code: 'required',
+          diagnostics: 'US Core Goal should have at least one target',
+          expression: ['Goal.target'],
           dimension: 'completeness',
           fixable: false
         });

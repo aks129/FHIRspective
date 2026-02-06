@@ -488,11 +488,11 @@ export class DatabricksService {
           assessment_id: String(assessmentId),
           resource_type: result.resourceType,
           resource_id: issue.resourceId || 'unknown',
-          dimension: issue.dimension,
-          severity: issue.severity,
-          message: issue.message,
-          field_path: issue.field || '',
-          is_auto_fixed: issue.autoFixed || false,
+          dimension: issue.dimension || 'conformity',
+          severity: issue.severity || 'warning',
+          message: issue.diagnostics || issue.message || 'Unknown issue',
+          field_path: issue.expression?.[0] || issue.field || '',
+          is_auto_fixed: issue.fixed || issue.autoFixed || false,
           detected_at: new Date()
         });
       }
