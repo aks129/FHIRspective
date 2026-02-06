@@ -16,6 +16,7 @@ import { ZodError } from "zod";
 import { fromZodError } from "zod-validation-error";
 
 import { exportService } from './services/exportService.js';
+import { demoService, PUBLIC_FHIR_SERVERS } from './demo/demoService.js';
 import { createLogger } from "./utils/logger.js";
 import { AppError, createErrorResponse, isOperationalError } from "./utils/errors.js";
 
@@ -852,6 +853,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : report.useCaseReadiness
     };
   }
+
+  // Demo API routes
+  app.get("/api/demo/servers", async (req: Request, res: Response) => {
+    try {
+      res.json({
+        servers: PUBLIC_FHIR_SERVERS,
+        description: "Available public FHIR servers for demo"
+      });
+    } catch (error) {
+      console.error("Error fetching demo servers:", error);
+      res.status(500).json({ error: "Failed to fetch demo servers" });
+    }
+  });
+
+  app.post("/api/demo/run", async (req: Request, res: Response) => {
+    try {
+      const {
+        mode = 'sample',
+        serverUrl,
+        resourceTypes = ['Patient', 'Condition', 'Observation'],
+        sampleSize = 10,
+        validator = 'custom',
+        implementationGuide = 'uscore'
+      } = req.body;
+
+      console.log(`Starting demo assessment in ${mode} mode...`);
+
+      const result = await demoService.runDemo({
+        mode,
+        serverUrl,
+        resourceTypes,
+        sampleSize,
+        validator,
+        implementationGuide
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error running demo:", error);
+      res.status(500).json({
+        error: "Demo failed",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  app.get("/api/demo/quick", async (req: Request, res: Response) => {
+    try {
+      console.log("Running quick demo with sample data...");
+      const result = await demoService.runQuickDemo();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running quick demo:", error);
+      res.status(500).json({
+        error: "Quick demo failed",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  app.get("/api/demo/live", async (req: Request, res: Response) => {
+    try {
+      console.log("Running live demo with HAPI FHIR server...");
+      const result = await demoService.runLiveDemo();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running live demo:", error);
+      res.status(500).json({
+        error: "Live demo failed",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  app.get("/api/demo/sample-data", async (req: Request, res: Response) => {
+    try {
+      const { sampleFhirData, getAllSampleResources } = await import('./demo/sampleFhirData.js');
+      const resourceType = req.query.resourceType as string | undefined;
+
+      if (resourceType) {
+        const { getSampleResourcesByType } = await import('./demo/sampleFhirData.js');
+        const resources = getSampleResourcesByType(resourceType);
+        res.json({
+          resourceType,
+          count: resources.length,
+          resources
+        });
+      } else {
+        res.json({
+          summary: {
+            patients: sampleFhirData.patients.length,
+            conditions: sampleFhirData.conditions.length,
+            observations: sampleFhirData.observations.length,
+            medicationRequests: sampleFhirData.medicationRequests.length,
+            encounters: sampleFhirData.encounters.length,
+            immunizations: sampleFhirData.immunizations.length,
+            total: getAllSampleResources().length
+          },
+          data: sampleFhirData
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching sample data:", error);
+      res.status(500).json({ error: "Failed to fetch sample data" });
+    }
+  });
 
   // Global error handler (must be last)
   app.use((err: Error, req: Request, res: Response, next: NextFunction) => {

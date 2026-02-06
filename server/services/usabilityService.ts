@@ -373,8 +373,9 @@ class UsabilityService {
     const requirements = RESOURCE_USE_CASE_REQUIREMENTS[resourceType]?.[useCase] || [];
     const requiredFieldScore = this.calculateRequiredFieldScore(resource, requirements);
 
-    // Blend base score with required field score
-    return (baseScore * 0.7) + (requiredFieldScore * 30);
+    // Blend base score with required field score (both are 0-100)
+    const finalScore = (baseScore * 0.7) + (requiredFieldScore * 0.3);
+    return Math.min(100, Math.max(0, finalScore));
   }
 
   /**
